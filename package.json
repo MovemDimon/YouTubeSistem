@@ -1,0 +1,16 @@
+{
+  "name": "dimonium-auto-comment",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "tsc",
+    "deploy": "wrangler publish"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20230504.0",
+    "typescript": "^5.1.6",
+    "tsx": "^3.12.7"
+  }
+}
