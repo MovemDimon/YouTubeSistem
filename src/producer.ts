@@ -21,22 +21,26 @@ const WEIGHTS: Record<Message['lang'], number> = {
   fa: 0.05,
 };
 
-async function fetchYouTubeVideos(
-  lang: string,
-  keywords: string[],
-  apiKey: string
-): Promise<string[]> {
+async function fetchYouTubeVideos(lang: string, keywords: string[], apiKey: string): Promise<string[]> {
   const videoIds = new Set<string>();
+
   for (const keyword of keywords) {
-    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=5`
-              + `&q=${encodeURIComponent(keyword)}&relevanceLanguage=${lang}&key=${apiKey}`;
+    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=5&q=${encodeURIComponent(keyword)}&relevanceLanguage=${lang}&key=${apiKey}`;
+
     const res = await fetch(url);
-    if (!res.ok) continue;
+    if (!res.ok) {
+      console.error(`Failed to fetch videos for keyword "${keyword}" (${lang}):`, await res.text());
+      continue;
+    }
+
     const data = await res.json();
     for (const item of data.items || []) {
-      if (item.id?.videoId) videoIds.add(item.id.videoId);
+      if (item.id?.videoId) {
+        videoIds.add(item.id.videoId);
+      }
     }
   }
+
   return Array.from(videoIds);
 }
 
