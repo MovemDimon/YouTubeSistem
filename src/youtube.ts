@@ -1,3 +1,5 @@
+// src/youtube.ts
+
 import fetch from 'node-fetch';
 
 type YouTubeAccount = {
@@ -8,6 +10,7 @@ type YouTubeAccount = {
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const COMMENT_URL = 'https://www.googleapis.com/youtube/v3/commentThreads';
+const REPLY_URL = 'https://www.googleapis.com/youtube/v3/comments';
 
 export async function refreshAccessToken(account: YouTubeAccount): Promise<string> {
   const params = new URLSearchParams({
@@ -17,11 +20,7 @@ export async function refreshAccessToken(account: YouTubeAccount): Promise<strin
     grant_type: 'refresh_token',
   });
 
-  const res = await fetch(TOKEN_URL, {
-    method: 'POST',
-    body: params,
-  });
-
+  const res = await fetch(TOKEN_URL, { method: 'POST', body: params });
   if (!res.ok) {
     throw new Error(`Failed to refresh access token: ${await res.text()}`);
   }
@@ -34,28 +33,50 @@ export async function postComment(
   access_token: string,
   videoId: string,
   text: string
-): Promise<void> {
+): Promise<string> {
   const body = {
     snippet: {
-      videoId: videoId,
-      topLevelComment: {
-        snippet: {
-          textOriginal: text,
-        },
-      },
-    },
+      videoId,
+      topLevelComment: { snippet: { textOriginal: text } }
+    }
   };
 
-  const res = await fetch(COMMENT_URL + '?part=snippet', {
+  const res = await fetch(`${COMMENT_URL}?part=snippet`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${access_token}`,
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/json'
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(body)
   });
 
   if (!res.ok) {
     throw new Error(`Failed to post comment: ${await res.text()}`);
+  }
+
+  const data = await res.json();
+  return data.id!; // returns commentThread ID
+}
+
+export async function postReply(
+  access_token: string,
+  parentId: string,
+  text: string
+): Promise<void> {
+  const body = {
+    snippet: { parentId, textOriginal: text }
+  };
+
+  const res = await fetch(`${REPLY_URL}?part=snippet`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${access_token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to post reply: ${await res.text()}`);
   }
 }
