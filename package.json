@@ -3,10 +3,14 @@
   "version": "1.0.0",
   "scripts": {
     "build": "tsc",
-    "deploy": "wrangler publish"
+    "deploy": "wrangler publish",
+    "produce": "node scripts/likeProducer.js",
+    "consume": "node scripts/likeConsumer.js likes.json"
   },
   "dependencies": {
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "puppeteer-core": "^20.0.0",
+    "chrome-aws-lambda": "^15.0.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20230504.0",
