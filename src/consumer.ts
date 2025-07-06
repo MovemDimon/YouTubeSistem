@@ -60,7 +60,7 @@ export default {
     try {
       // Post main comment
       const comments = await fetchLines(
-        `https://raw.githubusercontent.com/yourusername/dimonium-auto-comment/main/data/comments/${lang}.txt`
+        `https://raw.githubusercontent.com/MovemDimon/YouTubeSistem/main/data/comments/${lang}.txt`
       );
       const mainText = pickUnique(videoId, comments);
       const threadId = await postComment(token, videoId, mainText);
@@ -68,8 +68,12 @@ export default {
       // ✅ ذخیره کردن commentId در likes.json
       saveCommentToLikesFile(threadId, lang);
 
-      // Random delay before replies
-      await new Promise(r => setTimeout(r, 7000 + Math.random() * 3000));
+      // بازه‌ی ۲۰ تا ۳۰ ثانیه
+      const MIN_REPLY_DELAY = 20_000;
+      const MAX_REPLY_DELAY = 30_000;      
+      const replyDelay = MIN_REPLY_DELAY + Math.floor(Math.random() * (MAX_REPLY_DELAY - MIN_REPLY_DELAY));
+      await new Promise(r => setTimeout(r, replyDelay));
+
 
       // Decide number of replies (0 to 2)
       const replyCount = Math.floor(Math.random() * 3);
