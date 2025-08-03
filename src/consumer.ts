@@ -1,104 +1,71 @@
+// src/consumer.ts
 import { refreshAccessToken, postComment, postReply } from './youtube';
-import fs from 'fs';
-import path from 'path';
+import { Queue } from '@cloudflare/workers-types';
 
 const recentMap = new Map<string, Set<string>>();
 
 async function fetchLines(url: string): Promise<string[]> {
-  const res = await fetch(url);
-  const text = await res.text();
-  return text
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line);
+  const res = await fetch(url);
+  return (await res.text()).split('\n').map(line => line.trim()).filter(line => line);
 }
 
-function pickUnique(key: string, items: string[], limit = 50): string {
-  if (!recentMap.has(key)) {
-    recentMap.set(key, new Set());
-  }
-  const used = recentMap.get(key)!;
-  const pool = items.filter(i => !used.has(i));
-  const choice = pool.length > 0
-    ? pool[Math.floor(Math.random() * pool.length)]
-    : items[Math.floor(Math.random() * items.length)];
-  used.add(choice);
-  if (used.size > limit) used.clear();
-  return choice;
+function pickUnique(key: string, items: string[], limit = 100): string {
+  if (!recentMap.has(key)) recentMap.set(key, new Set());
+  const used = recentMap.get(key)!;
+  const pool = items.filter(i => !used.has(i));
+  const choice = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : items[Math.floor(Math.random() * items.length)];
+  used.add(choice);
+  if (used.size > limit) used.clear();
+  return choice;
 }
 
-function saveCommentToLikesFile(commentId: string, lang: string) {
-  const file = path.join(__dirname, '../likes.json');
-  let data: any = { comments: [] };
-  if (fs.existsSync(file)) {
-    data = JSON.parse(fs.readFileSync(file, 'utf-8'));
-  }
+function shuffleArray(array: any[]) {
+  return array.sort(() => Math.random() - 0.5);
+}
 
-  const alreadyExists = data.comments.some((c: any) => c.commentId === commentId);
-  if (!alreadyExists) {
-    data.comments.push({
-      commentId,
-      lang,
-      totalLikes: null,
-      likedSoFar: 0
-    });
-    fs.writeFileSync(file, JSON.stringify(data, null, 2));
-  }
+async function processMessage(msg: any, queue: Queue, env: any) {
+  try {
+    const { videoId, lang, accountIndex } = msg.body;
+    const accounts = JSON.parse(env.YOUTUBE_USERS);
+    const account = accounts[accountIndex];
+    const token = await refreshAccessToken(account);
+
+    const comments = await fetchLines(`https://raw.githubusercontent.com/MovemDimon/YouTubeSistem/main/data/comments/${lang}.txt`);
+    const mainText = pickUnique(videoId, comments);
+    const threadId = await postComment(token, videoId, mainText);
+
+    await new Promise(r => setTimeout(r, 15000 + Math.random() * 10000)); // delay 15–25s
+
+    const replyCount = Math.floor(Math.random() * 4); // 0–3
+    if (replyCount > 0) {
+      const replies = await fetchLines(`https://raw.githubusercontent.com/MovemDimon/YouTubeSistem/main/data/replies/${lang}.txt`);
+      const replyAccounts = shuffleArray([...Array(accounts.length).keys()].filter(i => i !== accountIndex)).slice(0, replyCount);
+
+      for (const idx of replyAccounts) {
+        const replyToken = await refreshAccessToken(accounts[idx]);
+        await postReply(replyToken, threadId, pickUnique(threadId, replies));
+        await new Promise(r => setTimeout(r, 3000 + Math.random() * 4000));
+      }
+    }
+
+    await new Promise(r => setTimeout(r, 45000 + Math.random() * 15000)); // 45–60s
+    await queue.delete(msg.receipt);
+  } catch (error) {
+    console.error('❌ Error processing message:', error);
+    throw error;
+  }
 }
 
 export default {
-  async fetch(_req: Request, env: any) {
-    const queue = env.COMMENT_QUEUE;
-    const msg = await queue.receive();
-    if (!msg) return new Response('Queue empty', { status: 200 });
+  async fetch(request: Request, env: any, ctx: ExecutionContext) {
+    const queue = env.COMMENT_QUEUE;
+    const messages = await queue.receive({ maxMessages: 10 });
+    if (!messages?.length) return new Response('Queue empty', { status: 200 });
 
-    const { videoId, lang, accountIndex } = msg.body;
-    const accounts = JSON.parse(env.YOUTUBE_USERS);
-    const account = accounts[accountIndex];
-    const token = await refreshAccessToken(account);
+    messages.forEach(msg => ctx.waitUntil(
+      processMessage(msg, queue, env).catch(e => console.error(`Failed: ${e}`))
+    ));
 
-    try {
-      // Post main comment
-      const comments = await fetchLines(
-        `https://raw.githubusercontent.com/MovemDimon/YouTubeSistem/main/data/comments/${lang}.txt`
-      );
-      const mainText = pickUnique(videoId, comments);
-      const threadId = await postComment(token, videoId, mainText);
-
-      // ✅ ذخیره کردن commentId در likes.json
-      saveCommentToLikesFile(threadId, lang);
-
-      // بازه‌ی ۲۰ تا ۳۰ ثانیه
-      const MIN_REPLY_DELAY = 20_000;
-      const MAX_REPLY_DELAY = 30_000;      
-      const replyDelay = MIN_REPLY_DELAY + Math.floor(Math.random() * (MAX_REPLY_DELAY - MIN_REPLY_DELAY));
-      await new Promise(r => setTimeout(r, replyDelay));
-
-
-      // Decide number of replies (0 to 2)
-      const replyCount = Math.floor(Math.random() * 3);
-      if (replyCount > 0) {
-        const replies = await fetchLines(
-          `https://raw.githubusercontent.com/yourusername/dimonium-auto-comment/main/data/replies/${lang}.txt`
-        );
-        const replyIdx = Array.from({ length: accounts.length }, (_, i) => i)
-          .sort(() => Math.random() - 0.5)
-          .slice(0, replyCount);
-
-        for (const idx of replyIdx) {
-          const repToken = await refreshAccessToken(accounts[idx]);
-          const replyText = pickUnique(threadId, replies);
-          await postReply(repToken, threadId, replyText);
-          await new Promise(r => setTimeout(r, 5000 + Math.random() * 5000));
-        }
-      }
-
-      await queue.delete(msg.receipt);
-      return new Response('Comment and replies posted', { status: 200 });
-
-    } catch (error) {
-      console.error('Error in consumer:', error);
-      return new Response('Retry', { status: 500 });
-    }
-  }
+    return new Response(`Processing ${messages.length} messages`);
+  }
 };
