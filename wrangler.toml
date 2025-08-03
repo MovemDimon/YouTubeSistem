@@ -8,6 +8,6 @@ queue = "comment-queue"
 
 [[queues.consumers]]
 queue = "comment-queue"
-
-[vars]
-LANGUAGES = "en,fa,ru,es,hi"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 2
