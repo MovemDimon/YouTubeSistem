@@ -4,17 +4,15 @@
   "scripts": {
     "build": "tsc",
     "deploy": "wrangler publish",
-    "produce": "node scripts/likeProducer.js",
-    "consume": "node scripts/likeConsumer.js likes.json"
+    "populate": "tsx scripts/populateRunner.ts"
   },
   "dependencies": {
-    "node-fetch": "^3.3.2",
-    "puppeteer-core": "^20.0.0",
-    "chrome-aws-lambda": "10.1.0"
+    "node-fetch": "^3.3.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20230504.0",
     "typescript": "^5.1.6",
-    "tsx": "^3.12.7"
+    "tsx": "^3.12.7",
+    "undici": "^5.28.3"
   }
 }
