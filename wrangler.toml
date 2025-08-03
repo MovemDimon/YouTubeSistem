@@ -1,7 +1,7 @@
 name = "dimonium-auto-comment"
 main = "src/consumer.ts"
 compatibility_date = "2025-06-09"
-node_compat = true
+compatibility_flags = ["nodejs_compat"]
 
 [[queues.producers]]
 binding = "COMMENT_QUEUE"
