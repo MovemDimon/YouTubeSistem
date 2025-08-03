@@ -1,0 +1,24 @@
+# .github/workflows/populate.yml
+name: Auto-Populate
+on:
+  schedule:
+    - cron: '0 */3 * * *' # هر 3 ساعت
+  workflow_dispatch:
+
+jobs:
+  populate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - run: pnpm install
+      - name: Populate Queue
+        run: pnpm populate
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          YOUTUBE_USERS: ${{ secrets.YOUTUBE_USERS }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          GITHUB_TOKEN: ${{ secrets.GH_CONTENTS_TOKEN }}
