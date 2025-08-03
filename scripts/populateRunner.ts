@@ -1,7 +1,7 @@
 import producer from '../src/producer';
 import { fetch } from 'undici';
 
-const STATUS_URL = 'https://raw.githubusercontent.com/your-username/your-repo/main/.status.json';
+const STATUS_URL = 'https://raw.githubusercontent.com/MovemDimon/YouTubeSistem/main/.status.json';
 const GITHUB_TOKEN = process.env.GH_CONTENTS_TOKEN!; // secret تعریف شده در GitHub
 
 const env = {
