@@ -1,5 +1,4 @@
 // src/youtube.ts
-
 import fetch from 'node-fetch';
 
 type YouTubeAccount = {
@@ -21,62 +20,38 @@ export async function refreshAccessToken(account: YouTubeAccount): Promise<strin
   });
 
   const res = await fetch(TOKEN_URL, { method: 'POST', body: params });
-  if (!res.ok) {
-    throw new Error(`Failed to refresh access token: ${await res.text()}`);
-  }
-
-  const data = await res.json();
-  return data.access_token;
+  if (!res.ok) throw new Error(`Failed to refresh token: ${await res.text()}`);
+  return (await res.json()).access_token;
 }
 
-export async function postComment(
-  access_token: string,
-  videoId: string,
-  text: string
-): Promise<string> {
-  const body = {
-    snippet: {
-      videoId,
-      topLevelComment: { snippet: { textOriginal: text } }
-    }
-  };
-
+export async function postComment(access_token: string, videoId: string, text: string): Promise<string> {
   const res = await fetch(`${COMMENT_URL}?part=snippet`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${access_token}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify({
+      snippet: {
+        videoId,
+        topLevelComment: { snippet: { textOriginal: text } }
+      }
+    })
   });
-
-  if (!res.ok) {
-    throw new Error(`Failed to post comment: ${await res.text()}`);
-  }
-
-  const data = await res.json();
-  return data.id!; // returns commentThread ID
+  if (!res.ok) throw new Error(`Failed to post comment: ${await res.text()}`);
+  return (await res.json()).id;
 }
 
-export async function postReply(
-  access_token: string,
-  parentId: string,
-  text: string
-): Promise<void> {
-  const body = {
-    snippet: { parentId, textOriginal: text }
-  };
-
+export async function postReply(access_token: string, parentId: string, text: string): Promise<void> {
   const res = await fetch(`${REPLY_URL}?part=snippet`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${access_token}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify({
+      snippet: { parentId, textOriginal: text }
+    })
   });
-
-  if (!res.ok) {
-    throw new Error(`Failed to post reply: ${await res.text()}`);
-  }
+  if (!res.ok) throw new Error(`Failed to post reply: ${await res.text()}`);
 }
