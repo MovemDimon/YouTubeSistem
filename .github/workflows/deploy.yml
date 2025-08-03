@@ -1,0 +1,30 @@
+# .github/workflows/deploy.yml
+name: Auto-Deploy
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * *' # روزانه در نیمه شب
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - run: pnpm install
+      - name: Deploy to Cloudflare
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+      - name: Initial Population
+        run: pnpm populate
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          YOUTUBE_USERS: ${{ secrets.YOUTUBE_USERS }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          GITHUB_TOKEN: ${{ secrets.GH_CONTENTS_TOKEN }}
