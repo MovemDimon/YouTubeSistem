@@ -2,7 +2,8 @@ import producer from '../src/producer';
 import { fetch } from 'undici';
 
 const STATUS_URL = 'https://raw.githubusercontent.com/MovemDimon/YouTubeSistem/main/.status.json';
-const GITHUB_TOKEN = process.env.GH_CONTENTS_TOKEN!; // secret تعریف شده در GitHub
+const GITHUB_TOKEN = process.env.GH_CONTENTS_TOKEN!;
+const COMMENT_KV_PUT_URL = `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT_ID}/storage/kv/namespaces/${process.env.CF_KV_NAMESPACE_ID}/values`;
 
 const env = {
   YOUTUBE_API_KEY: process.env.YOUTUBE_API_KEY!,
@@ -10,18 +11,16 @@ const env = {
   TOTAL_COMMENTS: "10000",
   COMMENT_QUEUE: {
     send: async (message: any) => {
-      const res = await fetch(
-        `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT_ID}/queues/comment-queue/messages`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${process.env.CF_API_TOKEN}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ body: message })
-        }
-      );
-      if (!res.ok) throw new Error(`Failed: ${await res.text()}`);
+      const id = Date.now().toString();
+      const res = await fetch(`${COMMENT_KV_PUT_URL}/comment-${id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${process.env.CF_API_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(message)
+      });
+      if (!res.ok) throw new Error(`Failed to enqueue comment: ${await res.text()}`);
     }
   }
 };
@@ -30,6 +29,14 @@ async function getStatus(): Promise<{ started_at: string; posted_comments: numbe
   const res = await fetch(STATUS_URL);
   if (!res.ok) throw new Error('Failed to fetch status');
   return await res.json();
+}
+
+async function getCurrentSha(): Promise<string> {
+  const res = await fetch(`https://api.github.com/repos/your-username/your-repo/contents/.status.json`, {
+    headers: { 'Authorization': `token ${GITHUB_TOKEN}` }
+  });
+  const json = await res.json();
+  return json.sha;
 }
 
 async function updateStatus(newCount: number) {
@@ -55,22 +62,12 @@ async function updateStatus(newCount: number) {
   if (!res.ok) throw new Error(await res.text());
 }
 
-async function getCurrentSha(): Promise<string> {
-  const res = await fetch(`https://api.github.com/repos/your-username/your-repo/contents/.status.json`, {
-    headers: {
-      'Authorization': `token ${GITHUB_TOKEN}`
-    }
-  });
-  const json = await res.json();
-  return json.sha;
-}
-
 async function main() {
   try {
     const status = await getStatus();
     const elapsed = Date.now() - new Date(status.started_at).getTime();
     const limitReached = status.posted_comments >= 10000;
-    const timeExceeded = elapsed > 20 * 60 * 60 * 1000; // 20 ساعت
+    const timeExceeded = elapsed > 20 * 60 * 60 * 1000;
 
     if (limitReached || timeExceeded) {
       console.log('⏹️ سیستم متوقف شده: سقف کامنت یا زمان تمام شده.');
@@ -82,7 +79,7 @@ async function main() {
 
     const newCount = status.posted_comments + parseInt(env.TOTAL_COMMENTS);
     await updateStatus(newCount);
-    console.log('✅ پیام‌ها به صف ارسال شدند.');
+    console.log('✅ پیام‌ها در KV ذخیره شدند.');
   } catch (error) {
     console.error('❌ خطا:', error);
     process.exit(1);
