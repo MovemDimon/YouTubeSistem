@@ -34,4 +34,4 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_KV_NAMESPACE_ID: ${{ secrets.KV_NAMESPACE_ID }}
-          GITHUB_TOKEN: ${{ secrets.GH_CONTENTS_TOKEN }}
+          GH_CONTENTS_TOKEN: ${{ secrets.GH_CONTENTS_TOKEN }}
