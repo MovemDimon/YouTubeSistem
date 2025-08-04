@@ -32,7 +32,7 @@ async function getStatus(): Promise<{ started_at: string; posted_comments: numbe
 }
 
 async function getCurrentSha(): Promise<string> {
-  const res = await fetch(`https://api.github.com/repos/your-username/your-repo/contents/.status.json`, {
+  const res = await fetch(`https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/.status.json`, {
     headers: { 'Authorization': `token ${GITHUB_TOKEN}` }
   });
   const json = await res.json();
@@ -45,7 +45,7 @@ async function updateStatus(newCount: number) {
     posted_comments: newCount
   }, null, 2);
 
-  const res = await fetch(`https://api.github.com/repos/your-username/your-repo/contents/.status.json`, {
+  const res = await fetch(`https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/.status.json`, {
     method: 'PUT',
     headers: {
       'Authorization': `token ${GITHUB_TOKEN}`,
