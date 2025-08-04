@@ -1,7 +1,6 @@
 import producer from '../src/producer';
 import { fetch } from 'undici';
 
-const STATUS_URL = 'https://raw.githubusercontent.com/MovemDimon/YouTubeSistem/main/.status.json';
 const GITHUB_TOKEN = process.env.GH_CONTENTS_TOKEN!;
 const COMMENT_KV_PUT_URL = `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT_ID}/storage/kv/namespaces/${process.env.CF_KV_NAMESPACE_ID}/values`;
 
@@ -26,14 +25,26 @@ const env = {
 };
 
 async function getStatus(): Promise<{ started_at: string; posted_comments: number }> {
-  const res = await fetch(STATUS_URL);
-  if (!res.ok) throw new Error('Failed to fetch status');
-  return await res.json();
+  const res = await fetch("https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/.status.json", {
+    headers: {
+      Authorization: `Bearer ${GITHUB_TOKEN}`,
+      Accept: "application/vnd.github.v3+json"
+    }
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to fetch status: ${body}`);
+  }
+
+  const data = await res.json();
+  const content = Buffer.from(data.content, "base64").toString();
+  return JSON.parse(content);
 }
 
 async function getCurrentSha(): Promise<string> {
   const res = await fetch(`https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/.status.json`, {
-    headers: { 'Authorization': `token ${GITHUB_TOKEN}` }
+    headers: { 'Authorization': `Bearer ${GITHUB_TOKEN}` }
   });
   const json = await res.json();
   return json.sha;
@@ -48,7 +59,7 @@ async function updateStatus(newCount: number) {
   const res = await fetch(`https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/.status.json`, {
     method: 'PUT',
     headers: {
-      'Authorization': `token ${GITHUB_TOKEN}`,
+      'Authorization': `Bearer ${GITHUB_TOKEN}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
