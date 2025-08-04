@@ -28,8 +28,8 @@ async function getStatus(GH_TOKEN: string): Promise<{ posted_comments: number; s
   return JSON.parse(content);
 }
 
-async function getCurrentSha(GH_TOKEN: string): Promise<string> {
-  const res = await fetch(`https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/.status.json`, {
+async function getCurrentSha(GH_TOKEN: string, file: string): Promise<string> {
+  const res = await fetch(`https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/${file}`, {
     headers: { 'Authorization': `Bearer ${GH_TOKEN}` }
   });
   const json = await res.json();
@@ -51,12 +51,37 @@ async function updateStatus(GH_TOKEN: string, newCount: number) {
     body: JSON.stringify({
       message: 'Update posted_comments after successful send',
       content: Buffer.from(body).toString('base64'),
-      sha: await getCurrentSha(GH_TOKEN),
+      sha: await getCurrentSha(GH_TOKEN, ".status.json"),
       branch: 'main'
     })
   });
 
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) console.error("❌ GitHub status update failed:", await res.text());
+}
+
+async function updateHeartbeat(GH_TOKEN: string, videoId: string, lang: string, status: "sent" | "error") {
+  const heartbeat = JSON.stringify({
+    last_heartbeat: new Date().toISOString(),
+    last_video: videoId,
+    last_lang: lang,
+    last_status: status
+  }, null, 2);
+
+  const res = await fetch(`https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/heartbeat.json`, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${GH_TOKEN}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      message: 'Update heartbeat',
+      content: Buffer.from(heartbeat).toString('base64'),
+      sha: await getCurrentSha(GH_TOKEN, "heartbeat.json"),
+      branch: 'main'
+    })
+  });
+
+  if (!res.ok) console.error("❌ GitHub heartbeat update failed:", await res.text());
 }
 
 export default {
@@ -72,25 +97,33 @@ export default {
       const { videoId, lang, accountIndex } = JSON.parse(raw);
       const accounts = JSON.parse(env.YOUTUBE_USERS);
       const account = accounts[accountIndex];
-      const token = await refreshAccessToken(account);
 
-      const commentLines = await fetchLines(`https://raw.githubusercontent.com/MovemDimon/YouTubeSistem/main/data/comments/${lang}.txt`);
-      const comment = pickUnique(videoId, commentLines, usedMap.get(videoId) || new Set());
-      const threadId = await postComment(token, videoId, comment);
+      try {
+        const token = await refreshAccessToken(account);
 
-      const replyCount = Math.floor(Math.random() * 4);
-      if (replyCount > 0) {
-        const replies = await fetchLines(`https://raw.githubusercontent.com/MovemDimon/YouTubeSistem/main/data/replies/${lang}.txt`);
-        const replyIndexes = shuffle([...Array(accounts.length).keys()].filter(i => i !== accountIndex)).slice(0, replyCount);
-        for (const idx of replyIndexes) {
-          const rToken = await refreshAccessToken(accounts[idx]);
-          await postReply(rToken, threadId, pickUnique(threadId, replies, new Set()));
-          await new Promise(r => setTimeout(r, 3000 + Math.random() * 4000));
+        const commentLines = await fetchLines(`https://raw.githubusercontent.com/MovemDimon/YouTubeSistem/main/data/comments/${lang}.txt`);
+        const comment = pickUnique(videoId, commentLines, usedMap.get(videoId) || new Set());
+        const threadId = await postComment(token, videoId, comment);
+
+        const replyCount = Math.floor(Math.random() * 4);
+        if (replyCount > 0) {
+          const replies = await fetchLines(`https://raw.githubusercontent.com/MovemDimon/YouTubeSistem/main/data/replies/${lang}.txt`);
+          const replyIndexes = shuffle([...Array(accounts.length).keys()].filter(i => i !== accountIndex)).slice(0, replyCount);
+          for (const idx of replyIndexes) {
+            const rToken = await refreshAccessToken(accounts[idx]);
+            await postReply(rToken, threadId, pickUnique(threadId, replies, new Set()));
+            await new Promise(r => setTimeout(r, 3000 + Math.random() * 4000));
+          }
         }
-      }
 
-      await env.COMMENT_KV.delete(name);
-      sentCount++;
+        await env.COMMENT_KV.delete(name);
+        await updateHeartbeat(env.GH_CONTENTS_TOKEN, videoId, lang, "sent");
+        sentCount++;
+
+      } catch (error) {
+        console.error(`❌ خطا در ارسال کامنت برای ویدیو ${name}:`, error);
+        await updateHeartbeat(env.GH_CONTENTS_TOKEN, videoId, lang, "error");
+      }
     }
 
     if (sentCount > 0) {
