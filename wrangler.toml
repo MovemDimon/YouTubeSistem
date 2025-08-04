@@ -11,6 +11,6 @@ id = "e9852af456e6491bbc762f0a568514bc"
 crons = ["*/1 * * * *"]
 
 [[migrations]]
-tag = "v2" # شماره نسخه دلخواه
-new_tag = "v3" # نسخه جدید برای دیپلوی جدید
+tag = "v2"  
+new_tag = "v3" 
 deleted_classes = ["BotNamespace"]
