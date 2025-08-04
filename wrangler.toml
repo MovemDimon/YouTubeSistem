@@ -1,4 +1,4 @@
-name = "dimonium-auto-comment"
+name = "dimon-comment"
 main = "src/commentProcessor.ts"
 compatibility_date = "2025-06-09"
 compatibility_flags = ["nodejs_compat"]
@@ -9,7 +9,3 @@ id = "e9852af456e6491bbc762f0a568514bc"
 
 [[triggers]]
 crons = ["*/1 * * * *"]
-
-[[migrations]]
-tag = "v4"                 
-deleted_classes = ["WSNamespace"]
