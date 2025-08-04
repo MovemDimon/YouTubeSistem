@@ -1,4 +1,3 @@
-// src/commentProcessor.ts
 import { refreshAccessToken, postComment, postReply } from './youtube';
 
 function shuffle<T>(arr: T[]): T[] {
@@ -17,16 +16,60 @@ function pickUnique(key: string, items: string[], usedSet: Set<string>): string 
   return chosen;
 }
 
+async function getStatus(GH_TOKEN: string): Promise<{ posted_comments: number; started_at: string }> {
+  const res = await fetch("https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/.status.json", {
+    headers: {
+      Authorization: `Bearer ${GH_TOKEN}`,
+      Accept: "application/vnd.github.v3+json"
+    }
+  });
+  const data = await res.json();
+  const content = Buffer.from(data.content, "base64").toString();
+  return JSON.parse(content);
+}
+
+async function getCurrentSha(GH_TOKEN: string): Promise<string> {
+  const res = await fetch(`https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/.status.json`, {
+    headers: { 'Authorization': `Bearer ${GH_TOKEN}` }
+  });
+  const json = await res.json();
+  return json.sha;
+}
+
+async function updateStatus(GH_TOKEN: string, newCount: number) {
+  const body = JSON.stringify({
+    started_at: new Date().toISOString(),
+    posted_comments: newCount
+  }, null, 2);
+
+  const res = await fetch(`https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/.status.json`, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${GH_TOKEN}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      message: 'Update posted_comments after successful send',
+      content: Buffer.from(body).toString('base64'),
+      sha: await getCurrentSha(GH_TOKEN),
+      branch: 'main'
+    })
+  });
+
+  if (!res.ok) throw new Error(await res.text());
+}
+
 export default {
   async scheduled(event: ScheduledEvent, env: any, ctx: ExecutionContext) {
     const usedMap = new Map<string, Set<string>>();
     const list = await env.COMMENT_KV.list({ prefix: 'comment-', limit: 5 });
+    let sentCount = 0;
 
     for (const { name } of list.keys) {
       const raw = await env.COMMENT_KV.get(name);
       if (!raw) continue;
-      const { videoId, lang, accountIndex } = JSON.parse(raw);
 
+      const { videoId, lang, accountIndex } = JSON.parse(raw);
       const accounts = JSON.parse(env.YOUTUBE_USERS);
       const account = accounts[accountIndex];
       const token = await refreshAccessToken(account);
@@ -47,6 +90,12 @@ export default {
       }
 
       await env.COMMENT_KV.delete(name);
+      sentCount++;
+    }
+
+    if (sentCount > 0) {
+      const status = await getStatus(env.GH_CONTENTS_TOKEN);
+      await updateStatus(env.GH_CONTENTS_TOKEN, status.posted_comments + sentCount);
     }
   }
 }
