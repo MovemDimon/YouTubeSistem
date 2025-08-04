@@ -8,37 +8,16 @@ import keywords_hi from '../data/keywords/hi.json';
 type Lang = 'en' | 'fa' | 'ru' | 'es' | 'hi';
 type Message = { platform: 'youtube'; videoId: string; lang: Lang; accountIndex: number };
 
-const WEIGHTS: Record<Lang, number> = { en: 0.40, ru: 0.20, es: 0.15, hi: 0.20, fa: 0.05 };
 const MAX_COMMENTS_PER_VIDEO = 7;
 
 async function fetchYouTubeVideos(lang: string, keywords: string[], apiKey: string): Promise<string[]> {
   const videoIds = new Set<string>();
-
   for (const keyword of keywords) {
-    let nextPageToken = '';
-    let fetched = 0;
-    const maxPerKeyword = 100;
-
-    while (fetched < maxPerKeyword) {
-      const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=50&q=${encodeURIComponent(keyword)}&relevanceLanguage=${lang}&key=${apiKey}&pageToken=${nextPageToken}`;
-      const res = await fetch(url);
-      if (!res.ok) break;
-      const json = await res.json();
-
-      for (const item of json.items || []) {
-        const vid = item.id?.videoId;
-        if (vid && !videoIds.has(vid)) {
-          videoIds.add(vid);
-          fetched++;
-        }
-        if (fetched >= maxPerKeyword) break;
-      }
-
-      nextPageToken = json.nextPageToken;
-      if (!nextPageToken) break;
-    }
+    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=10&q=${encodeURIComponent(keyword)}&relevanceLanguage=${lang}&key=${apiKey}`;
+    const res = await fetch(url);
+    if (!res.ok) continue;
+    (await res.json()).items?.forEach((item: any) => item.id?.videoId && videoIds.add(item.id.videoId));
   }
-
   return Array.from(videoIds);
 }
 
@@ -49,12 +28,12 @@ export default {
     const apiKey = env.YOUTUBE_API_KEY;
     const accountsCount = JSON.parse(env.YOUTUBE_USERS).length;
 
-    const totalTarget = 10000; // کل تعداد کامنت
+    const totalTarget = parseInt(env.TOTAL_COMMENTS);
     let produced = 0;
 
     for (const lang of langs) {
       const videoIds = await fetchYouTubeVideos(lang, keywordsMap[lang], apiKey);
-      const selected = videoIds; // همه ویدیوها بدون محدودیت
+      const selected = videoIds.slice(0, 200); // افزایش از 50 به 200
 
       for (const videoId of selected) {
         const accountIndexes = Array.from({ length: accountsCount }, (_, i) => i)
