@@ -33,7 +33,7 @@ export default {
 
     for (const lang of langs) {
       const videoIds = await fetchYouTubeVideos(lang, keywordsMap[lang], apiKey);
-      const selected = videoIds.slice(0, 200); // افزایش از 50 به 200
+      const selected = videoIds.slice(0, 400); // افزایش از 50 به 200
 
       for (const videoId of selected) {
         const accountIndexes = Array.from({ length: accountsCount }, (_, i) => i)
