@@ -1,14 +1,11 @@
 name = "dimonium-auto-comment"
-main = "src/consumer.ts"
+main = "src/commentProcessor.ts"
 compatibility_date = "2025-06-09"
 compatibility_flags = ["nodejs_compat"]
 
-[[queues.producers]]
-binding = "COMMENT_QUEUE"
-queue = "comment-queue"
+[[kv_namespaces]]
+binding = "COMMENT_KV"
+id = "e9852af456e6491bbc762f0a568514bc"
 
-[[queues.consumers]]
-queue = "comment-queue"
-max_batch_size = 10
-max_batch_timeout = 5
-max_retries = 2
+[[triggers]]
+crons = ["*/1 * * * *"]
