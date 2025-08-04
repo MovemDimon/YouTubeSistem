@@ -42,37 +42,6 @@ async function getStatus(): Promise<{ started_at: string; posted_comments: numbe
   return JSON.parse(content);
 }
 
-async function getCurrentSha(): Promise<string> {
-  const res = await fetch(`https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/.status.json`, {
-    headers: { 'Authorization': `Bearer ${GITHUB_TOKEN}` }
-  });
-  const json = await res.json();
-  return json.sha;
-}
-
-async function updateStatus(newCount: number) {
-  const body = JSON.stringify({
-    started_at: new Date().toISOString(),
-    posted_comments: newCount
-  }, null, 2);
-
-  const res = await fetch(`https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/.status.json`, {
-    method: 'PUT',
-    headers: {
-      'Authorization': `Bearer ${GITHUB_TOKEN}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      message: 'Update posted_comments',
-      content: Buffer.from(body).toString('base64'),
-      sha: await getCurrentSha(),
-      branch: 'main'
-    })
-  });
-
-  if (!res.ok) throw new Error(await res.text());
-}
-
 async function main() {
   try {
     const status = await getStatus();
@@ -86,8 +55,6 @@ async function main() {
     console.log('🟢 سیستم در حال اجرا...');
     await producer.fetchAndProduce(env.COMMENT_QUEUE, env as any);
 
-    const newCount = status.posted_comments + parseInt(env.TOTAL_COMMENTS);
-    await updateStatus(newCount);
     console.log('✅ پیام‌ها در KV ذخیره شدند.');
   } catch (error) {
     console.error('❌ خطا:', error);
