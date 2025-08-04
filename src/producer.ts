@@ -1,4 +1,3 @@
-// src/producer.ts
 import { Queue } from '@cloudflare/workers-types';
 import keywords_en from '../data/keywords/en.json';
 import keywords_fa from '../data/keywords/fa.json';
