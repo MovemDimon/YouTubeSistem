@@ -76,12 +76,10 @@ async function updateStatus(newCount: number) {
 async function main() {
   try {
     const status = await getStatus();
-    const elapsed = Date.now() - new Date(status.started_at).getTime();
     const limitReached = status.posted_comments >= 10000;
-    const timeExceeded = elapsed > 20 * 60 * 60 * 1000;
 
-    if (limitReached || timeExceeded) {
-      console.log('⏹️ سیستم متوقف شده: سقف کامنت یا زمان تمام شده.');
+    if (limitReached) {
+      console.log('⏹️ سیستم متوقف شده: سقف کامنت ارسال شده.');
       return;
     }
 
