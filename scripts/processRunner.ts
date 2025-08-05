@@ -1,4 +1,5 @@
 import { refreshAccessToken, postComment, postReply } from '../src/youtube';
+import { getActiveUsers } from "../src/getActiveUsers";
 import { fetch } from 'undici';
 
 function shuffle<T>(arr: T[]): T[] {
@@ -29,6 +30,8 @@ async function getStatus(GH_TOKEN: string): Promise<{ posted_comments: number }>
     const err = await res.text();
     throw new Error(`Failed to fetch status: ${err}`);
   }
+
+  const users = await getActiveUsers();
 
   const data = await res.json();
   const content = Buffer.from(data.content, "base64").toString();
