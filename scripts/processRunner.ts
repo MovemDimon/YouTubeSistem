@@ -121,7 +121,7 @@ async function main() {
   };
 
   const kvBaseUrl = `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/storage/kv/namespaces/${env.CF_KV_NAMESPACE_ID}`;
-  const listUrl = `${kvBaseUrl}/keys?prefix=comment-&limit=5`;
+  const listUrl = `${kvBaseUrl}/keys?prefix=comment-&limit=10`;
 
   const listRes = await fetch(listUrl, {
     headers: { Authorization: `Bearer ${env.CF_API_TOKEN}` }
