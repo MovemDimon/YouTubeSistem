@@ -1,12 +1,7 @@
 name: Auto-Process
 
 on:
-  push:
-    branches:
-      - main   # یا اسم شاخه‌ای که استفاده می‌کنی
-  schedule:
-    - cron: '*/1 * * * *'   # هر 1 دقیقه
-  workflow_dispatch:
+  workflow_dispatch:  
 
 jobs:
   process:
@@ -15,15 +10,15 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          
+
       - name: Install dependencies
         run: npm install -g pnpm && pnpm install
-        
+
       - name: Process comments
         run: pnpm process
         env:
@@ -32,7 +27,7 @@ jobs:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_KV_NAMESPACE_ID: ${{ secrets.KV_NAMESPACE_ID }}
           GH_CONTENTS_TOKEN: ${{ secrets.GH_CONTENTS_TOKEN }}
-          
+
       - name: Verify status update
         run: pnpm verify
         env:
