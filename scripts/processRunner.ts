@@ -31,8 +31,6 @@ async function getStatus(GH_TOKEN: string): Promise<{ posted_comments: number }>
     throw new Error(`Failed to fetch status: ${err}`);
   }
 
-  const users = await getActiveUsers();
-
   const data = await res.json();
   const content = Buffer.from(data.content, "base64").toString();
   return JSON.parse(content);
@@ -44,7 +42,6 @@ async function getCurrentSha(GH_TOKEN: string, file: string): Promise<string | n
   });
 
   if (res.status === 404) return null;
-
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Failed to get SHA for ${file}: ${err}`);
@@ -57,7 +54,7 @@ async function getCurrentSha(GH_TOKEN: string, file: string): Promise<string | n
 async function updateStatus(GH_TOKEN: string, newCount: number) {
   const body = JSON.stringify({
     last_updated: new Date().toISOString(),
-    total_comments: newCount
+    posted_comments: newCount
   }, null, 2);
 
   const sha = await getCurrentSha(GH_TOKEN, ".status.json");
@@ -119,7 +116,6 @@ async function main() {
     CF_API_TOKEN: process.env.CF_API_TOKEN!,
     CF_ACCOUNT_ID: process.env.CF_ACCOUNT_ID!,
     CF_KV_NAMESPACE_ID: process.env.CF_KV_NAMESPACE_ID!,
-    YOUTUBE_USERS: process.env.YOUTUBE_USERS!,
     GH_CONTENTS_TOKEN: process.env.GH_CONTENTS_TOKEN!,
   };
 
@@ -146,7 +142,12 @@ async function main() {
 
   const usedMap = new Map<string, Set<string>>();
   let sentCount = 0;
-  const accounts = JSON.parse(env.YOUTUBE_USERS);
+
+  const activeAccounts = await getActiveUsers();
+
+  if (activeAccounts.length === 0) {
+    throw new Error("❌ No valid YouTube users found! All tokens are likely expired.");
+  }
 
   for (const key of keys) {
     const valueUrl = `${kvBaseUrl}/values/${key.name}`;
@@ -156,40 +157,43 @@ async function main() {
 
     if (!valueRes.ok) {
       const err = await valueRes.text();
-      throw new Error(`Failed to get value for ${key.name}: ${err}`);
+      console.error(`❌ Failed to get value for ${key.name}: ${err}`);
+      continue;
     }
 
     const raw = await valueRes.text();
-    const { videoId, lang, accountIndex } = JSON.parse(raw);
-    const account = accounts[accountIndex];
+    const { videoId, lang } = JSON.parse(raw);
 
     console.log(`▶️ Processing comment for video ${videoId} (${lang})`);
 
-    try {
-      const token = await refreshAccessToken(account);
-      const commentLines = await fetchLines(`https://raw.githubusercontent.com/MovemDimon/YouTubeSistem/main/data/comments/${lang}.txt`);
+    const account = activeAccounts[Math.floor(Math.random() * activeAccounts.length)];
 
-      if (!usedMap.has(videoId)) {
-        usedMap.set(videoId, new Set());
-      }
+    try {
+      const token = await refreshAccessToken(account.refresh_token, account.client_id, account.client_secret);
+
+      const commentLines = await fetchLines(`https://raw.githubusercontent.com/MovemDimon/YouTubeSistem/main/data/comments/${lang}.txt`);
+      if (!usedMap.has(videoId)) usedMap.set(videoId, new Set());
 
       const usedSet = usedMap.get(videoId)!;
       const comment = pickUnique(videoId, commentLines, usedSet);
-      const threadId = await postComment(token, videoId, comment);
+      const threadId = await postComment(token.access_token, videoId, comment);
       console.log(`💬 Comment posted: ${comment.substring(0, 30)}...`);
 
       const replyCount = Math.floor(Math.random() * 4);
-
       if (replyCount > 0) {
         const replies = await fetchLines(`https://raw.githubusercontent.com/MovemDimon/YouTubeSistem/main/data/replies/${lang}.txt`);
-        const replyIndexes = shuffle([...Array(accounts.length).keys()].filter(i => i !== accountIndex)).slice(0, replyCount);
+        const replyIndexes = shuffle(activeAccounts.filter(u => u !== account)).slice(0, replyCount);
 
-        for (const idx of replyIndexes) {
-          const rToken = await refreshAccessToken(accounts[idx]);
-          const reply = pickUnique(threadId, replies, new Set());
-          await postReply(rToken, threadId, reply);
-          console.log(`↪️ Reply posted: ${reply.substring(0, 30)}...`);
-          await new Promise(r => setTimeout(r, 3000 + Math.random() * 4000));
+        for (const otherAccount of replyIndexes) {
+          try {
+            const rToken = await refreshAccessToken(otherAccount.refresh_token, otherAccount.client_id, otherAccount.client_secret);
+            const reply = pickUnique(threadId, replies, new Set());
+            await postReply(rToken.access_token, threadId, reply);
+            console.log(`↪️ Reply posted: ${reply.substring(0, 30)}...`);
+            await new Promise(r => setTimeout(r, 3000 + Math.random() * 4000));
+          } catch (err) {
+            console.warn(`⚠️ Failed reply by another user:`, err.message || err);
+          }
         }
       }
 
@@ -200,17 +204,17 @@ async function main() {
 
       if (!deleteRes.ok) {
         const err = await deleteRes.text();
-        throw new Error(`Failed to delete ${key.name} from KV: ${err}`);
+        console.error(`❌ Failed to delete ${key.name} from KV: ${err}`);
+      } else {
+        console.log(`🗑️ Deleted ${key.name} from KV`);
       }
 
-      console.log(`🗑️ Deleted ${key.name} from KV`);
       await updateHeartbeat(env.GH_CONTENTS_TOKEN, videoId, lang, "sent");
       sentCount++;
 
     } catch (error) {
-      console.error(`❌ Error processing ${key.name}:`, error);
+      console.error(`❌ Error posting comment for ${key.name}:`, error.message || error);
       await updateHeartbeat(env.GH_CONTENTS_TOKEN, videoId, lang, "error");
-      throw error;  // توقف کل سیستم در اولین خطا
     }
   }
 
@@ -220,11 +224,11 @@ async function main() {
     await updateStatus(env.GH_CONTENTS_TOKEN, newTotal);
     console.log(`📈 Total comments sent: ${newTotal}`);
   } else {
-    throw new Error("No comments were successfully processed.");
+    console.warn("⚠️ No comments were successfully processed.");
   }
 }
 
 main().catch(e => {
-  console.error('❌ Unhandled error:', e);
+  console.error("❌ Unhandled fatal error:", e.message || e);
   process.exit(1);
 });
