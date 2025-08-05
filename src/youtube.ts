@@ -1,4 +1,4 @@
-import { fetch } from 'undici'; 
+import { fetch } from 'undici';
 
 type YouTubeAccount = {
   client_id: string;
@@ -10,6 +10,10 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const COMMENT_URL = 'https://www.googleapis.com/youtube/v3/commentThreads';
 const REPLY_URL = 'https://www.googleapis.com/youtube/v3/comments';
 
+/**
+ * Refreshes an access token using a YouTube account's refresh token.
+ * Throws detailed error if fails.
+ */
 export async function refreshAccessToken(account: YouTubeAccount): Promise<string> {
   const params = new URLSearchParams({
     client_id: account.client_id,
@@ -19,10 +23,19 @@ export async function refreshAccessToken(account: YouTubeAccount): Promise<strin
   });
 
   const res = await fetch(TOKEN_URL, { method: 'POST', body: params });
-  if (!res.ok) throw new Error(`Failed to refresh token: ${await res.text()}`);
-  return (await res.json()).access_token;
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(`Failed to refresh token: ${JSON.stringify(data, null, 2)}`);
+  }
+
+  return data.access_token;
 }
 
+/**
+ * Posts a top-level comment to a YouTube video.
+ * Returns the comment thread ID.
+ */
 export async function postComment(access_token: string, videoId: string, text: string): Promise<string> {
   const res = await fetch(`${COMMENT_URL}?part=snippet`, {
     method: 'POST',
@@ -33,14 +46,27 @@ export async function postComment(access_token: string, videoId: string, text: s
     body: JSON.stringify({
       snippet: {
         videoId,
-        topLevelComment: { snippet: { textOriginal: text } }
+        topLevelComment: {
+          snippet: {
+            textOriginal: text
+          }
+        }
       }
     })
   });
-  if (!res.ok) throw new Error(`Failed to post comment: ${await res.text()}`);
-  return (await res.json()).id;
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(`Failed to post comment: ${JSON.stringify(data, null, 2)}`);
+  }
+
+  return data.id;
 }
 
+/**
+ * Posts a reply to a comment thread.
+ */
 export async function postReply(access_token: string, parentId: string, text: string): Promise<void> {
   const res = await fetch(`${REPLY_URL}?part=snippet`, {
     method: 'POST',
@@ -49,8 +75,16 @@ export async function postReply(access_token: string, parentId: string, text: st
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      snippet: { parentId, textOriginal: text }
+      snippet: {
+        parentId,
+        textOriginal: text
+      }
     })
   });
-  if (!res.ok) throw new Error(`Failed to post reply: ${await res.text()}`);
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(`Failed to post reply: ${JSON.stringify(data, null, 2)}`);
+  }
 }
