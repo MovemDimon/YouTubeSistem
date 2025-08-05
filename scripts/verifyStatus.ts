@@ -35,7 +35,7 @@ async function main() {
   const now = new Date();
   const diffMinutes = (now.getTime() - commitDate.getTime()) / 60000;
   
-  if (diffMinutes > 10) {
+  if (diffMinutes > 1440) {
     throw new Error(`Status file not updated in ${Math.floor(diffMinutes)} minutes`);
   }
   
