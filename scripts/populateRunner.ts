@@ -19,7 +19,10 @@ const env = {
         },
         body: JSON.stringify(message)
       });
-      if (!res.ok) throw new Error(`Failed to enqueue comment: ${await res.text()}`);
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`Failed to enqueue comment: ${body}`);
+      }
     }
   }
 };
@@ -48,17 +51,16 @@ async function main() {
     const limitReached = status.total_comments >= 10000;
 
     if (limitReached) {
-      console.log('⏹️ سیستم متوقف شده: سقف کامنت ارسال شده.');
-      return;
+      console.error('⏹️ سیستم متوقف شده: سقف کامنت ارسال شده (10000).');
+      process.exit(0);  // توقف طبیعی
     }
 
-    console.log('🟢 سیستم در حال اجرا...');
+    console.log('🟢 سیستم Populate در حال اجرا...');
     await producer.fetchAndProduce(env.COMMENT_QUEUE, env as any);
-
     console.log('✅ پیام‌ها در KV ذخیره شدند.');
   } catch (error) {
-    console.error('❌ خطا:', error);
-    process.exit(1);
+    console.error('❌ خطای Populate:', error);
+    process.exit(1);  // توقف با خطا
   }
 }
 
