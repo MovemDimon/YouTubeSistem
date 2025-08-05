@@ -1,4 +1,3 @@
-// src/youtube.ts
 import { fetch } from 'undici'; 
 
 type YouTubeAccount = {
