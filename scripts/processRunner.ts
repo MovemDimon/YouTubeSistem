@@ -24,10 +24,10 @@ async function getStatus(GH_TOKEN: string): Promise<{ posted_comments: number }>
       Accept: "application/vnd.github.v3+json"
     }
   });
-  
+
   if (!res.ok) {
-    console.error('Failed to fetch status:', await res.text());
-    return { posted_comments: 0 };
+    const err = await res.text();
+    throw new Error(`Failed to fetch status: ${err}`);
   }
 
   const data = await res.json();
@@ -36,19 +36,19 @@ async function getStatus(GH_TOKEN: string): Promise<{ posted_comments: number }>
 }
 
 async function getCurrentSha(GH_TOKEN: string, file: string): Promise<string | null> {
-  try {
-    const res = await fetch(`https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/${file}`, {
-      headers: { 'Authorization': `Bearer ${GH_TOKEN}` }
-    });
-    
-    if (res.status === 404) return null;
-    
-    const json = await res.json();
-    return json.sha;
-  } catch (error) {
-    console.error(`Error getting SHA for ${file}:`, error);
-    return null;
+  const res = await fetch(`https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/${file}`, {
+    headers: { Authorization: `Bearer ${GH_TOKEN}` }
+  });
+
+  if (res.status === 404) return null;
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Failed to get SHA for ${file}: ${err}`);
   }
+
+  const json = await res.json();
+  return json.sha;
 }
 
 async function updateStatus(GH_TOKEN: string, newCount: number) {
@@ -58,26 +58,27 @@ async function updateStatus(GH_TOKEN: string, newCount: number) {
   }, null, 2);
 
   const sha = await getCurrentSha(GH_TOKEN, ".status.json");
-  
-  const res = await fetch(`https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/.status.json`, {
+
+  const res = await fetch("https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/.status.json", {
     method: 'PUT',
     headers: {
-      'Authorization': `Bearer ${GH_TOKEN}`,
+      Authorization: `Bearer ${GH_TOKEN}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
       message: 'Update status',
       content: Buffer.from(body).toString('base64'),
-      sha: sha,
+      sha,
       branch: 'main'
     })
   });
 
   if (!res.ok) {
-    console.error("❌ GitHub status update failed:", await res.text());
-  } else {
-    console.log("✅ Status updated successfully");
+    const err = await res.text();
+    throw new Error(`GitHub status update failed: ${err}`);
   }
+
+  console.log("✅ Status updated successfully");
 }
 
 async function updateHeartbeat(GH_TOKEN: string, videoId: string, lang: string, status: "sent" | "error") {
@@ -88,10 +89,10 @@ async function updateHeartbeat(GH_TOKEN: string, videoId: string, lang: string, 
     last_status: status
   }, null, 2);
 
-  const res = await fetch(`https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/heartbeat.json`, {
+  const res = await fetch("https://api.github.com/repos/MovemDimon/YouTubeSistem/contents/heartbeat.json", {
     method: 'PUT',
     headers: {
-      'Authorization': `Bearer ${GH_TOKEN}`,
+      Authorization: `Bearer ${GH_TOKEN}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
@@ -102,13 +103,15 @@ async function updateHeartbeat(GH_TOKEN: string, videoId: string, lang: string, 
     })
   });
 
-  if (!res.ok) console.error("❌ GitHub heartbeat update failed:", await res.text());
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`GitHub heartbeat update failed: ${err}`);
+  }
 }
 
 async function main() {
   console.log('🚀 Starting comment processing...');
-  
-  // خواندن متغیرهای محیطی
+
   const env = {
     CF_API_TOKEN: process.env.CF_API_TOKEN!,
     CF_ACCOUNT_ID: process.env.CF_ACCOUNT_ID!,
@@ -117,67 +120,67 @@ async function main() {
     GH_CONTENTS_TOKEN: process.env.GH_CONTENTS_TOKEN!,
   };
 
-  // URL پایه برای دسترسی به KV
-  const kvBaseUrl = `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/storage/kv/namespaces/${env.KV_NAMESPACE_ID}`;
-  
-  // دریافت لیست کامنت‌ها از KV
-  const listUrl = `${kvBaseUrl}/keys?prefix=comment-&limit=10`;
+  const kvBaseUrl = `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/storage/kv/namespaces/${env.CF_KV_NAMESPACE_ID}`;
+  const listUrl = `${kvBaseUrl}/keys?prefix=comment-&limit=5`;
+
   const listRes = await fetch(listUrl, {
-    headers: { 'Authorization': `Bearer ${env.CF_API_TOKEN}` }
+    headers: { Authorization: `Bearer ${env.CF_API_TOKEN}` }
   });
-  
+
   if (!listRes.ok) {
-    console.error('❌ Failed to list KV keys:', await listRes.text());
-    return;
+    const err = await listRes.text();
+    throw new Error(`Failed to list KV keys: ${err}`);
   }
-  
+
   const listData = await listRes.json() as any;
   const keys = listData.result;
-  const usedMap = new Map<string, Set<string>>();
-  let sentCount = 0;
+
+  if (!keys || keys.length === 0) {
+    throw new Error("No comment keys found in KV. Possibly populate system is broken.");
+  }
 
   console.log(`🔍 Found ${keys.length} comments to process`);
-  
+
+  const usedMap = new Map<string, Set<string>>();
+  let sentCount = 0;
+  const accounts = JSON.parse(env.YOUTUBE_USERS);
+
   for (const key of keys) {
     const valueUrl = `${kvBaseUrl}/values/${key.name}`;
     const valueRes = await fetch(valueUrl, {
-      headers: { 'Authorization': `Bearer ${env.CF_API_TOKEN}` }
+      headers: { Authorization: `Bearer ${env.CF_API_TOKEN}` }
     });
-    
+
     if (!valueRes.ok) {
-      console.error(`❌ Failed to get value for ${key.name}:`, await valueRes.text());
-      continue;
+      const err = await valueRes.text();
+      throw new Error(`Failed to get value for ${key.name}: ${err}`);
     }
-    
+
     const raw = await valueRes.text();
     const { videoId, lang, accountIndex } = JSON.parse(raw);
-    const accounts = JSON.parse(env.YOUTUBE_USERS);
     const account = accounts[accountIndex];
 
     console.log(`▶️ Processing comment for video ${videoId} (${lang})`);
-    
+
     try {
-      // دریافت توکن دسترسی
       const token = await refreshAccessToken(account);
-      
-      // انتخاب کامنت تصادفی
       const commentLines = await fetchLines(`https://raw.githubusercontent.com/MovemDimon/YouTubeSistem/main/data/comments/${lang}.txt`);
-      
+
       if (!usedMap.has(videoId)) {
         usedMap.set(videoId, new Set());
       }
+
       const usedSet = usedMap.get(videoId)!;
-      
       const comment = pickUnique(videoId, commentLines, usedSet);
       const threadId = await postComment(token, videoId, comment);
       console.log(`💬 Comment posted: ${comment.substring(0, 30)}...`);
-      
-      // ارسال پاسخ‌ها
+
       const replyCount = Math.floor(Math.random() * 4);
+
       if (replyCount > 0) {
         const replies = await fetchLines(`https://raw.githubusercontent.com/MovemDimon/YouTubeSistem/main/data/replies/${lang}.txt`);
         const replyIndexes = shuffle([...Array(accounts.length).keys()].filter(i => i !== accountIndex)).slice(0, replyCount);
-        
+
         for (const idx of replyIndexes) {
           const rToken = await refreshAccessToken(accounts[idx]);
           const reply = pickUnique(threadId, replies, new Set());
@@ -186,37 +189,35 @@ async function main() {
           await new Promise(r => setTimeout(r, 3000 + Math.random() * 4000));
         }
       }
-      
-      // حذف کامنت از KV
+
       const deleteRes = await fetch(`${kvBaseUrl}/values/${key.name}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${env.CF_API_TOKEN}` }
+        headers: { Authorization: `Bearer ${env.CF_API_TOKEN}` }
       });
-      
+
       if (!deleteRes.ok) {
-        console.error(`❌ Failed to delete ${key.name}:`, await deleteRes.text());
-      } else {
-        console.log(`🗑️ Deleted ${key.name} from KV`);
+        const err = await deleteRes.text();
+        throw new Error(`Failed to delete ${key.name} from KV: ${err}`);
       }
-      
-      // به‌روزرسانی وضعیت
+
+      console.log(`🗑️ Deleted ${key.name} from KV`);
       await updateHeartbeat(env.GH_CONTENTS_TOKEN, videoId, lang, "sent");
       sentCount++;
-      
+
     } catch (error) {
       console.error(`❌ Error processing ${key.name}:`, error);
       await updateHeartbeat(env.GH_CONTENTS_TOKEN, videoId, lang, "error");
+      throw error;  // توقف کل سیستم در اولین خطا
     }
   }
-  
-  // به‌روزرسانی وضعیت کلی
+
   if (sentCount > 0) {
     const status = await getStatus(env.GH_CONTENTS_TOKEN);
     const newTotal = status.posted_comments + sentCount;
     await updateStatus(env.GH_CONTENTS_TOKEN, newTotal);
     console.log(`📈 Total comments sent: ${newTotal}`);
   } else {
-    console.log('ℹ️ No comments processed');
+    throw new Error("No comments were successfully processed.");
   }
 }
 
