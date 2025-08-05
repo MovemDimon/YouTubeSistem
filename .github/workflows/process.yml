@@ -1,5 +1,9 @@
 name: Auto-Process
+
 on:
+  push:
+    branches:
+      - main   # یا اسم شاخه‌ای که استفاده می‌کنی
   schedule:
     - cron: '*/1 * * * *'   # هر 1 دقیقه
   workflow_dispatch:
