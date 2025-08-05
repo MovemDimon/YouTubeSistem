@@ -1,5 +1,5 @@
 // src/youtube.ts
-import fetch from 'node-fetch';
+import { fetch } from 'undici'; 
 
 type YouTubeAccount = {
   client_id: string;
