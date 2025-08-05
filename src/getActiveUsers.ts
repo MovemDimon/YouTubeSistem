@@ -1,43 +1,41 @@
 import { refreshAccessToken } from "./youtube";
 
-export async function getActiveUsers() {
-  const raw = process.env.YOUTUBE_USERS;
+type YouTubeUser = {
+  client_id: string;
+  client_secret: string;
+  refresh_token: string;
+};
 
-  if (!raw) {
-    throw new Error("❌ Missing YOUTUBE_USERS environment variable");
-  }
+export async function getActiveUsers(): Promise<YouTubeUser[]> {
+  const raw = process.env.YOUTUBE_USERS!;
+  const users: YouTubeUser[] = JSON.parse(raw);
 
-  let users;
-  try {
-    users = JSON.parse(raw);
-  } catch (e) {
-    throw new Error("❌ Failed to parse YOUTUBE_USERS JSON from environment");
-  }
+  const validUsers: YouTubeUser[] = [];
 
-  const activeUsers = [];
+  console.log(`🔍 Verifying ${users.length} YouTube accounts...\n`);
 
-  for (const user of users) {
-    try {
-      const tokens = await refreshAccessToken(user.refresh_token, user.client_id, user.client_secret);
-      activeUsers.push({
-        ...user,
-        access_token: tokens.access_token,
-      });
-    } catch (error: any) {
-      const msg = error?.response?.data?.error_description || error.message;
-      if (msg?.includes("invalid_grant")) {
-        console.warn(`⚠️ Skipping invalid token for ${user.name}`);
-      } else {
-        console.error(`❌ Unexpected error with ${user.name}:`, error);
-      }
+  for (let i = 0; i < users.length; i++) {
+    const user = users[i];
+    const label = `User ${i}`;
+
+    if (!user.client_id || !user.client_secret || !user.refresh_token) {
+      console.warn(`⚠️ ${label} skipped due to missing fields.`);
       continue;
+    }
+
+    try {
+      await refreshAccessToken(user); // مهم: await اضافه شد!
+      console.log(`✅ ${label} passed token refresh.`);
+      validUsers.push(user);
+    } catch (e: any) {
+      console.error(`❌ ${label} failed: ${e?.message || e}`);
     }
   }
 
-  if (activeUsers.length === 0) {
-    throw new Error("🚨 No valid YouTube users found!");
+  if (validUsers.length === 0) {
+    throw new Error("🚨 No valid YouTube accounts found! Aborting.");
   }
 
-  console.log(`✅ ${activeUsers.length} valid users available.`);
-  return activeUsers;
+  console.log(`\n📋 ${validUsers.length} of ${users.length} users are valid.`);
+  return validUsers;
 }
