@@ -2,7 +2,7 @@ import { fetch } from "undici";
 
 const CF_API_TOKEN = process.env.CF_API_TOKEN!;
 const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID!;
-const CF_KV_NAMESPACE_ID = process.env.KV_NAMESPACE_ID!;
+const KV_NAMESPACE_ID = process.env.KV_NAMESPACE_ID!;
 
 const kvBaseUrl = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${KV_NAMESPACE_ID}`;
 
