@@ -120,7 +120,7 @@ async function main() {
   };
 
   const kvBaseUrl = `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/storage/kv/namespaces/${env.CF_KV_NAMESPACE_ID}`;
-  const listUrl = `${kvBaseUrl}/keys?prefix=comment-&limit=10`;
+  const listUrl = `${kvBaseUrl}/keys?prefix=comment-&limit=1000`;
 
   const listRes = await fetch(listUrl, {
     headers: { Authorization: `Bearer ${env.CF_API_TOKEN}` }
@@ -144,12 +144,43 @@ async function main() {
   let sentCount = 0;
 
   const activeAccounts = await getActiveUsers();
+  const validAccountIndexes = new Set(activeAccounts.map((_, i) => i));
 
   if (activeAccounts.length === 0) {
     throw new Error("❌ No valid YouTube users found! All tokens are likely expired.");
   }
 
+  // Filter out bad comments linked to broken accounts
   for (const key of keys) {
+    const valueUrl = `${kvBaseUrl}/values/${key.name}`;
+    const valueRes = await fetch(valueUrl, {
+      headers: { Authorization: `Bearer ${env.CF_API_TOKEN}` }
+    });
+
+    if (!valueRes.ok) {
+      console.error(`❌ Failed to get value for ${key.name}`);
+      continue;
+    }
+
+    const raw = await valueRes.text();
+    const parsed = JSON.parse(raw);
+    const { accountIndex } = parsed;
+
+    if (accountIndex !== undefined && !validAccountIndexes.has(accountIndex)) {
+      await fetch(`${kvBaseUrl}/values/${key.name}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${env.CF_API_TOKEN}` }
+      });
+      console.log(`🧹 Deleted comment from invalid account: ${key.name}`);
+    }
+  }
+
+  const remainingListRes = await fetch(listUrl, {
+    headers: { Authorization: `Bearer ${env.CF_API_TOKEN}` }
+  });
+  const remainingKeys = (await remainingListRes.json()).result;
+
+  for (const key of remainingKeys) {
     const valueUrl = `${kvBaseUrl}/values/${key.name}`;
     const valueRes = await fetch(valueUrl, {
       headers: { Authorization: `Bearer ${env.CF_API_TOKEN}` }
