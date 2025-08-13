@@ -1,34 +1,32 @@
-name: Auto-Process
+name: Auto Comment Runner
 
 on:
-  workflow_dispatch:  
+  workflow_dispatch:
 
 jobs:
-  process:
+  run:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    timeout-minutes: 10
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v3
         with:
-          node-version: '20'
+          node-version: 20
 
       - name: Install dependencies
-        run: npm install -g pnpm && pnpm install
+        run: npm install
 
-      - name: Process comments
-        run: pnpm process
+      - name: Run comment runner
         env:
-          YOUTUBE_USERS: ${{ secrets.YOUTUBE_USERS }}
-          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          CF_KV_NAMESPACE_ID: ${{ secrets.KV_NAMESPACE_ID }}
+          COOKIE1: ${{ secrets.COOKIE1 }}
+          COOKIE2: ${{ secrets.COOKIE2 }}
+          COOKIE3: ${{ secrets.COOKIE3 }}
+          COOKIE4: ${{ secrets.COOKIE4 }}
+          COOKIE5: ${{ secrets.COOKIE5 }}
+          COOKIE6: ${{ secrets.COOKIE6 }}
+          COOKIE7: ${{ secrets.COOKIE7 }}
           GH_CONTENTS_TOKEN: ${{ secrets.GH_CONTENTS_TOKEN }}
-
-      - name: Verify status update
-        run: pnpm verify
-        env:
-          GH_CONTENTS_TOKEN: ${{ secrets.GH_CONTENTS_TOKEN }}
+        run: node commentRunner.js
