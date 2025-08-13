@@ -7,18 +7,23 @@
     COOKIE5: ${{ secrets.COOKIE5 }}
     COOKIE6: ${{ secrets.COOKIE6 }}
     COOKIE7: ${{ secrets.COOKIE7 }}
-  run: |
-    node -e "const c=[process.env.COOKIE1,process.env.COOKIE2,process.env.COOKIE3,process.env.COOKIE4,process.env.COOKIE5,process.env.COOKIE6,process.env.COOKIE7];
-    (async()=>{
-      const fetch = (await import('node-fetch')).default;
-      for(let i=0;i<c.length;i++){
-        if(!c[i]){ console.log(`#${i+1}: MISSING`); continue; }
-        try{
-          const r = await fetch('https://www.youtube.com/watch?v=dQw4w9WgXcQ',{headers:{Cookie:c[i],'User-Agent':'Mozilla/5.0'}});
+  run: node -e '
+    const fetch = require("node-fetch");
+    const c = [
+      process.env.COOKIE1, process.env.COOKIE2, process.env.COOKIE3,
+      process.env.COOKIE4, process.env.COOKIE5, process.env.COOKIE6,
+      process.env.COOKIE7
+    ];
+    (async () => {
+      for (let i = 0; i < c.length; i++) {
+        if (!c[i]) { console.log(`#${i+1}: MISSING`); continue; }
+        try {
+          const r = await fetch("https://www.youtube.com/watch?v=dQw4w9WgXcQ", {headers: {Cookie: c[i], "User-Agent": "Mozilla/5.0"}});
           const t = await r.text();
-          console.log(`#${i+1}:`, t.includes('ytInitialData') ? 'OK' : `FAIL status ${r.status}`);
-        }catch(e){
+          console.log(`#${i+1}:`, t.includes("ytInitialData") ? "OK" : `FAIL status ${r.status}`);
+        } catch(e) {
           console.log(`#${i+1}: ERROR`, e.message);
         }
       }
-    })();"
+    })();
+  '
