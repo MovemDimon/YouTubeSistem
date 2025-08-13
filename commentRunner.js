@@ -1,83 +1,116 @@
-import fs from 'fs';
-import { ACCOUNTS } from './youtube_cookies.js';
-import { sleep, pickRandom, shuffle, pickUnique } from './utils.js';
+import { ACCOUNTS } from "./youtube_cookies.js";
+import { delay, shuffle, getLangFromFilename } from "./utils.js";
+import { searchAndStoreVideos } from "./searchAndStoreVideos.js";
+import { postComment, likeComment, postReply } from "./youtubeActions.js";
+import fs from "fs";
+import path from "path";
+import { Octokit } from "@octokit/rest";
 
-const LANGS = ['en', 'fa', 'ru', 'es', 'hi'];
+const MAX_COMMENTS = 10000;
 
-async function postComment(cookie, videoId, text) {
-  // TODO: استفاده از puppeteer یا fetch با simulate form
-  console.log(`💬 [${videoId}] COMMENT: ${text.slice(0, 30)}...`);
+function loadStatus() {
+  try {
+    return JSON.parse(fs.readFileSync("status.json", "utf-8"));
+  } catch {
+    return { posted: 0 };
+  }
 }
 
-async function likeComment(cookie, commentId) {
-  // TODO: ارسال درخواست لایک به commentId با کوکی
-  console.log(`👍 LIKE sent to ${commentId}`);
-}
+async function updateStatusGitHub(GH_TOKEN, postedCount) {
+  const octokit = new Octokit({ auth: GH_TOKEN });
+  const repo = {
+    owner: "MovemDimon",
+    repo: "YouTubeSistem",
+    path: "status.json",
+  };
 
-async function replyComment(cookie, parentId, text) {
-  // TODO: ارسال ریپلای به commentId
-  console.log(`↪️ Reply: ${text.slice(0, 30)}...`);
-}
+  const { data } = await octokit.repos.getContent({ ...repo });
+  const sha = data.sha;
+  const content = Buffer.from(
+    JSON.stringify({ posted: postedCount }, null, 2)
+  ).toString("base64");
 
-async function loadStatus() {
-  return JSON.parse(fs.readFileSync('status.json', 'utf8'));
-}
-
-async function updateStatus(count) {
-  const status = await loadStatus();
-  status.posted_comments += count;
-  fs.writeFileSync('status.json', JSON.stringify(status, null, 2));
+  await octokit.repos.createOrUpdateFileContents({
+    ...repo,
+    message: `Update status to ${postedCount}`,
+    content,
+    sha,
+  });
 }
 
 async function main() {
-  const status = await loadStatus();
-  if (status.posted_comments >= status.max_comments) {
-    console.log("🎯 Goal reached. System will stop.");
+  const status = loadStatus();
+  if (status.posted >= MAX_COMMENTS) {
+    console.log("✅ Goal reached. Exiting.");
     return;
   }
 
-  const accounts = shuffle(ACCOUNTS);
-  const lang = pickRandom(LANGS);
-  const videos = JSON.parse(fs.readFileSync(`data/videos/${lang}.json`, 'utf8'));
-  const comments = fs.readFileSync(`data/comments/${lang}.txt`, 'utf8').split('\n').filter(Boolean);
-  const replies = fs.readFileSync(`data/replies/${lang}.txt`, 'utf8').split('\n').filter(Boolean);
+  const langs = fs.readdirSync("data/comments").filter(f => f.endsWith(".txt"));
+  const lang = getLangFromFilename(shuffle(langs)[0]);
 
-  const usedMap = new Map();
-  let sent = 0;
-
-  for (const account of accounts) {
-    const target = pickRandom(videos);
-    const usedSet = usedMap.get(target.videoId) || new Set();
-    const text = pickUnique(target.videoId, comments, usedSet);
-    usedMap.set(target.videoId, usedSet);
-
-    await postComment(account.cookie, target.videoId, text);
-    sent++;
-
-    const commentId = `${target.videoId}-${Date.now()}`; // fake
-
-    const likeCount = 3 + Math.floor(Math.random() * 5);
-    const likers = shuffle(accounts.filter(a => a !== account)).slice(0, likeCount);
-
-    for (const liker of likers) {
-      await sleep(2000 + Math.random() * 3000);
-      await likeComment(liker.cookie, commentId);
-    }
-
-    const replyCount = Math.floor(Math.random() * 4);
-    const repliers = shuffle(accounts.filter(a => a !== account)).slice(0, replyCount);
-
-    for (const replier of repliers) {
-      const reply = pickUnique(commentId, replies, new Set());
-      await sleep(2000 + Math.random() * 3000);
-      await replyComment(replier.cookie, commentId, reply);
-    }
-
-    await sleep(5000 + Math.random() * 4000);
+  const videoPath = `data/videos/${lang}.json`;
+  if (!fs.existsSync(videoPath)) {
+    console.log("📹 No videos yet. Searching...");
+    await searchAndStoreVideos();
   }
 
-  await updateStatus(sent);
-  console.log(`📈 Sent ${sent} new comments.`);
+  const videos = JSON.parse(fs.readFileSync(videoPath, "utf-8"));
+  const selected = shuffle(videos).slice(0, 2);
+
+  let count = 0;
+
+  for (const video of selected) {
+    const account = shuffle(ACCOUNTS)[0];
+    const commentText = shuffle(
+      fs.readFileSync(`data/comments/${lang}.txt`, "utf-8")
+        .split("\n")
+        .filter(Boolean)
+    )[0];
+
+    try {
+      const commentId = await postComment(account.cookie, video.id, commentText);
+      console.log("💬 Comment posted:", commentText);
+      count++;
+
+      const likers = shuffle(ACCOUNTS).slice(0, 7);
+      for (const acc of likers) {
+        try {
+          await likeComment(acc.cookie, commentId);
+          await delay(500 + Math.random() * 1500);
+        } catch (e) {
+          console.warn("⚠️ Like failed", e.message);
+        }
+      }
+
+      const replyCount = Math.floor(Math.random() * 4);
+      const replies = shuffle(
+        fs.readFileSync(`data/replies/${lang}.txt`, "utf-8")
+          .split("\n")
+          .filter(Boolean)
+      );
+
+      for (let i = 0; i < replyCount; i++) {
+        const replier = shuffle(ACCOUNTS.filter(a => a !== account))[0];
+        try {
+          await postReply(replier.cookie, commentId, replies[i]);
+          console.log("↪️ Reply:", replies[i]);
+          await delay(2000 + Math.random() * 2000);
+        } catch (e) {
+          console.warn("⚠️ Reply failed", e.message);
+        }
+      }
+    } catch (e) {
+      console.error("❌ Comment failed", e.message);
+    }
+  }
+
+  const newTotal = status.posted + count;
+  fs.writeFileSync("status.json", JSON.stringify({ posted: newTotal }, null, 2));
+
+  if (process.env.GH_CONTENTS_TOKEN) {
+    await updateStatusGitHub(process.env.GH_CONTENTS_TOKEN, newTotal);
+    console.log("📡 GitHub status updated");
+  }
 }
 
 main();
