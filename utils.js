@@ -1,4 +1,10 @@
 import fs from 'fs';
+import path from 'path';
+
+// تابع جدید اضافه شده
+export function getLangFromFilename(filename) {
+  return filename.split('.')[0];
+}
 
 export const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -12,9 +18,7 @@ export function shuffle(arr) {
 
 export function pickUnique(key, items, usedSet) {
   const pool = items.filter(i => !usedSet.has(i));
-  const chosen = pool.length
-    ? pickRandom(pool)
-    : pickRandom(items);
+  const chosen = pool.length ? pickRandom(pool) : pickRandom(items);
   usedSet.add(chosen);
   return chosen;
 }
@@ -25,11 +29,8 @@ export async function retryOperation(fn, operationName, retries = 3, delayMs = 2
       return await fn();
     } catch (e) {
       console.warn(`⚠️ Retry ${attempt}/${retries} for ${operationName}:`, e.message);
-      if (attempt < retries) {
-        await delay(delayMs * attempt);
-      } else {
-        throw e;
-      }
+      if (attempt < retries) await delay(delayMs * attempt);
+      else throw e;
     }
   }
 }
