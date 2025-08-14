@@ -1,58 +1,108 @@
 import fs from 'fs';
 import { ACCOUNTS } from './youtube_cookies.js';
-import { pickRandom, sleep } from './utils.js';
+import { pickRandom, sleep, retryOperation, validateFile } from './utils.js';
 
 const LANGS = ['en', 'fa', 'ru', 'es', 'hi'];
+const MAX_ATTEMPTS = 3;
 
 async function searchYouTube(keyword, cookie) {
+  if (!cookie) throw new Error('Invalid cookie');
+
   const params = new URLSearchParams({
     search_query: keyword,
-    sp: 'EgIQAQ%253D%253D', // فیلتر ویدیو
+    sp: 'EgIQAQ%253D%253D',
   });
 
   const res = await fetch(`https://www.youtube.com/results?${params}`, {
     headers: {
       'Cookie': cookie,
-      'User-Agent': 'Mozilla/5.0',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
     },
   });
 
   const text = await res.text();
-  const json = JSON.parse(text.split('var ytInitialData = ')[1].split(';</script>')[0]);
+  const ytDataMatch = text.split('var ytInitialData = ');
+  
+  if (ytDataMatch.length < 2) {
+    throw new Error('YouTube data structure not found');
+  }
+  
+  const jsonStr = ytDataMatch[1].split(';</script>')[0];
+  const json = JSON.parse(jsonStr);
 
-  const items = json.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents
-    .flatMap(x => x.itemSectionRenderer?.contents || [])
-    .map(x => x.videoRenderer)
-    .filter(Boolean);
+  // اعتبارسنجی ساختار داده
+  const getSafe = (obj, ...path) => path.reduce((o, p) => o?.[p], obj);
+  
+  const items = getSafe(
+    json,
+    'contents',
+    'twoColumnSearchResultsRenderer',
+    'primaryContents',
+    'sectionListRenderer',
+    'contents'
+  ) || [];
 
-  return items.map(v => ({
-    videoId: v.videoId,
-    title: v.title.runs[0].text,
-    views: parseInt(v.viewCountText?.simpleText?.replace(/[^\d]/g, '') || 0),
-    published: v.publishedTimeText?.simpleText || '',
-  }));
+  const videos = items.flatMap(section => 
+    (section.itemSectionRenderer?.contents || [])
+      .map(item => item.videoRenderer)
+      .filter(Boolean)
+      .map(v => ({
+        videoId: v.videoId,
+        title: v.title?.runs?.[0]?.text || 'No title',
+        views: parseInt(v.viewCountText?.simpleText?.replace(/[^\d]/g, '') || 0),
+        published: v.publishedTimeText?.simpleText || '',
+      }))
+  );
+
+  return videos;
 }
 
 async function main() {
   for (const lang of LANGS) {
-    const keywords = JSON.parse(fs.readFileSync(`data/keywords/${lang}.json`, 'utf8'));
+    const keywordsPath = `data/keywords/${lang}.json`;
+    if (!fs.existsSync(keywordsPath)) {
+      console.warn(`Skipping ${lang}: keywords file not found`);
+      continue;
+    }
+
+    const keywords = JSON.parse(validateFile(keywordsPath));
     const results = [];
 
     for (const keyword of keywords) {
-      const account = pickRandom(ACCOUNTS);
+      const validAccounts = ACCOUNTS.filter(a => a.cookie);
+      if (validAccounts.length === 0) {
+        throw new Error('No valid accounts available');
+      }
+
+      const account = pickRandom(validAccounts);
       try {
-        const videos = await searchYouTube(keyword, account.cookie);
+        const videos = await retryOperation(
+          () => searchYouTube(keyword, account.cookie),
+          "searchYouTube",
+          MAX_ATTEMPTS
+        );
+        
         results.push(...videos);
-        await sleep(2000 + Math.random() * 2000);
+        console.log(`🔍 [${lang}] Found ${videos.length} videos for "${keyword}"`);
+        
+        await sleep(3000 + Math.random() * 4000);
       } catch (e) {
-        console.warn(`❌ Failed to fetch for ${keyword}:`, e.message);
+        console.warn(`❌ [${lang}] Failed for "${keyword}": ${e.message}`);
       }
     }
 
-    const unique = Object.values(Object.fromEntries(results.map(v => [v.videoId, v])));
-    fs.writeFileSync(`data/videos/${lang}.json`, JSON.stringify(unique, null, 2));
-    console.log(`✅ Saved ${unique.length} videos for [${lang}]`);
+    const uniqueVideos = Object.values(
+      results.reduce((acc, video) => {
+        if (video.videoId) acc[video.videoId] = video;
+        return acc;
+      }, {})
+    );
+    
+    if (uniqueVideos.length > 0) {
+      fs.writeFileSync(`data/videos/${lang}.json`, JSON.stringify(uniqueVideos, null, 2));
+      console.log(`✅ [${lang}] Saved ${uniqueVideos.length} unique videos`);
+    }
   }
 }
 
-main();
+main().catch(e => console.error('🔥 Search failed:', e));
