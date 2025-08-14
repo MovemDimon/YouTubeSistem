@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { ACCOUNTS } from './youtube_cookies.js';
-import { pickRandom, delay, retryOperation, validateFile } from './utils.js'; // تغییر sleep به delay
+import { pickRandom, delay, retryOperation, validateFile } from './utils.js';
 
 const LANGS = ['en', 'fa', 'ru', 'es', 'hi'];
 const MAX_ATTEMPTS = 3;
@@ -30,7 +30,6 @@ async function searchYouTube(keyword, cookie) {
   const jsonStr = ytDataMatch[1].split(';</script>')[0];
   const json = JSON.parse(jsonStr);
 
-  // اعتبارسنجی ساختار داده
   const getSafe = (obj, ...path) => path.reduce((o, p) => o?.[p], obj);
   
   const items = getSafe(
@@ -57,8 +56,7 @@ async function searchYouTube(keyword, cookie) {
   return videos;
 }
 
-async function main() {
-  // ایجاد پوشه videos اگر وجود ندارد
+export async function searchAndStoreVideos() {
   if (!fs.existsSync('data/videos')) {
     fs.mkdirSync('data/videos', { recursive: true });
   }
@@ -90,7 +88,7 @@ async function main() {
         results.push(...videos);
         console.log(`🔍 [${lang}] Found ${videos.length} videos for "${keyword}"`);
         
-        await delay(3000 + Math.random() * 4000); // تغییر sleep به delay
+        await delay(3000 + Math.random() * 4000);
       } catch (e) {
         console.warn(`❌ [${lang}] Failed for "${keyword}": ${e.message}`);
       }
@@ -109,5 +107,3 @@ async function main() {
     }
   }
 }
-
-main().catch(e => console.error('🔥 Search failed:', e));
