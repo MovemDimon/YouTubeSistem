@@ -7,6 +7,7 @@ import { Octokit } from "@octokit/rest";
 
 const MAX_COMMENTS = 10000;
 const MAX_CONSECUTIVE_ERRORS = 5;
+const MIN_VIDEOS_REQUIRED = 5; // حداقل ویدیوهای مورد نیاز برای اجرا
 
 function loadStatus() {
   try {
@@ -52,61 +53,80 @@ async function updateStatusGitHub(GH_TOKEN, postedCount) {
 }
 
 async function main() {
-  console.log("🔍 Checking accounts...");
+  console.log("🔍 Starting system check...");
+  
+  // بررسی حساب‌ها
+  console.log("🔐 Account Status:");
+  const validAccounts = ACCOUNTS.filter(a => a.cookie);
   ACCOUNTS.forEach(acc => {
     console.log(`   ${acc.name}: ${acc.cookie ? '✅ Valid' : '❌ Invalid'}`);
   });
 
+  if (validAccounts.length < 3) {
+    throw new Error("❌ Need at least 3 valid accounts to proceed");
+  }
+
+  // بررسی وضعیت
   const status = loadStatus();
   if (status.posted_comments >= status.max_comments) {
     console.log("✅ Goal reached. Exiting.");
     return;
   }
 
-  let consecutiveErrors = 0;
+  // انتخاب زبان
   const langs = fs.readdirSync("data/comments").filter(f => f.endsWith(".txt"));
-  
   if (langs.length === 0) {
-    throw new Error("No comment files found in data/comments");
+    throw new Error("❌ No comment files found in data/comments");
   }
   
   const lang = getLangFromFilename(shuffle(langs)[0]);
+  console.log(`🌐 Selected language: ${lang}`);
 
+  // مدیریت ویدیوها
   const videoPath = `data/videos/${lang}.json`;
-  if (!fs.existsSync(videoPath)) {
-    console.log("📹 No videos found. Searching...");
-    await searchAndStoreVideos();
+  let videos = [];
+  
+  try {
+    if (fs.existsSync(videoPath)) {
+      videos = JSON.parse(fs.readFileSync(videoPath, "utf-8"));
+      console.log(`📹 Loaded ${videos.length} existing videos`);
+    }
+  } catch (e) {
+    console.warn("⚠️ Error loading videos:", e.message);
   }
 
-  const videos = JSON.parse(validateFile(videoPath));
-  const selected = shuffle(videos).slice(0, 2);
+  if (videos.length < MIN_VIDEOS_REQUIRED) {
+    console.log("🔍 Not enough videos, starting search...");
+    await searchAndStoreVideos();
+    videos = JSON.parse(fs.readFileSync(videoPath, "utf-8"));
+  }
 
+  // انتخاب ویدیوها
+  const selected = shuffle(videos).slice(0, 2);
   let count = 0;
 
+  // عملیات اصلی
   for (const [index, video] of selected.entries()) {
-    const account = shuffle(ACCOUNTS.filter(a => a.cookie))[0];
-    
-    if (!account) {
-      console.error("❌ No valid accounts available");
-      break;
-    }
+    const account = shuffle(validAccounts)[0];
+    console.log(`\n🎬 Processing video: ${video.videoId} (${video.title.substring(0, 30)}...)`);
 
     try {
+      // ارسال کامنت
       const commentText = shuffle(
         validateFile(`data/comments/${lang}.txt`).split("\n").filter(Boolean)
       )[0];
-
+      
       const commentId = await retryOperation(
         () => postComment(account.cookie, video.id, commentText),
         "postComment",
         3
       );
       
-      console.log(`💬 Comment posted by ${account.name}: ${commentText.substring(0, 30)}...`);
+      console.log(`💬 Comment by ${account.name}: ${commentText.substring(0, 30)}...`);
       count++;
-      consecutiveErrors = 0;
 
-      const likers = shuffle(ACCOUNTS.filter(a => a.cookie && a !== account)).slice(0, 7);
+      // لایک‌ها
+      const likers = shuffle(validAccounts.filter(a => a !== account)).slice(0, 7);
       for (const acc of likers) {
         try {
           await retryOperation(
@@ -114,21 +134,20 @@ async function main() {
             "likeComment",
             2
           );
-          await delay(1000 + Math.random() * 3000);
+          await delay(1000 + Math.random() * 2000);
         } catch (e) {
-          console.warn(`⚠️ Like failed for ${acc.name}: ${e.message}`);
+          console.warn(`⚠️ Like failed for ${acc.name}:`, e.message);
         }
       }
 
+      // پاسخ‌ها
       const replyCount = Math.floor(Math.random() * 4);
       const replies = shuffle(
         validateFile(`data/replies/${lang}.txt`).split("\n").filter(Boolean)
       );
 
       for (let i = 0; i < Math.min(replyCount, replies.length); i++) {
-        const replier = shuffle(ACCOUNTS.filter(a => a.cookie && a !== account))[0];
-        if (!replier) continue;
-
+        const replier = shuffle(validAccounts.filter(a => a !== account))[0];
         try {
           await retryOperation(
             () => postReply(replier.cookie, commentId, replies[i]),
@@ -136,26 +155,28 @@ async function main() {
             2
           );
           console.log(`↪️ Reply by ${replier.name}: ${replies[i].substring(0, 30)}...`);
-          await delay(3000 + Math.random() * 5000);
+          await delay(3000 + Math.random() * 4000);
         } catch (e) {
-          console.warn(`⚠️ Reply failed for ${replier.name}: ${e.message}`);
+          console.warn(`⚠️ Reply failed for ${replier.name}:`, e.message);
         }
       }
     } catch (e) {
-      consecutiveErrors++;
-      console.error(`❌ Critical error: ${e.message}`);
-      
-      if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-        console.error("🚨 Emergency stop: Too many consecutive errors");
+      console.error(`❌ Video processing failed:`, e.message);
+      if (++consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+        console.error("🚨 Emergency stop: Too many errors");
         break;
       }
     }
 
+    // تاخیر بین ویدیوها
     if (index < selected.length - 1) {
-      await delay(15000 + Math.random() * 15000);
+      const waitTime = 10000 + Math.random() * 10000;
+      console.log(`⏳ Waiting ${Math.round(waitTime/1000)} seconds...`);
+      await delay(waitTime);
     }
   }
 
+  // به‌روزرسانی وضعیت
   const newTotal = status.posted_comments + count;
   fs.writeFileSync("status.json", JSON.stringify({
     ...status,
@@ -166,6 +187,8 @@ async function main() {
     await updateStatusGitHub(process.env.GH_CONTENTS_TOKEN, newTotal);
     console.log("📡 GitHub status updated");
   }
+
+  console.log(`\n🎉 Successfully processed ${count} videos. Total: ${newTotal}/${MAX_COMMENTS}`);
 }
 
-main().catch(e => console.error("🔥 Fatal error in main:", e));
+main().catch(e => console.error("🔥 Fatal error:", e));
