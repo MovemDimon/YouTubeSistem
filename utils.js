@@ -1,4 +1,6 @@
-export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+import fs from 'fs';
+
+export const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -8,6 +10,15 @@ export function shuffle(arr) {
   return [...arr].sort(() => Math.random() - 0.5);
 }
 
+export function pickUnique(key, items, usedSet) {
+  const pool = items.filter(i => !usedSet.has(i));
+  const chosen = pool.length
+    ? pickRandom(pool)
+    : pickRandom(items);
+  usedSet.add(chosen);
+  return chosen;
+}
+
 export async function retryOperation(fn, operationName, retries = 3, delayMs = 2000) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
@@ -15,7 +26,7 @@ export async function retryOperation(fn, operationName, retries = 3, delayMs = 2
     } catch (e) {
       console.warn(`⚠️ Retry ${attempt}/${retries} for ${operationName}:`, e.message);
       if (attempt < retries) {
-        await sleep(delayMs * attempt);
+        await delay(delayMs * attempt);
       } else {
         throw e;
       }
