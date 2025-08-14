@@ -4,6 +4,8 @@ import { pickRandom, delay, retryOperation, validateFile } from './utils.js';
 
 const LANGS = ['en', 'fa', 'ru', 'es', 'hi'];
 const MAX_ATTEMPTS = 3;
+const MAX_VIDEOS_PER_LANG = 500; // محدودیت تعداد ویدیوهای ذخیره شده
+const MIN_VIDEOS_FOR_SKIP = 50; // حداقل ویدیوهای مورد نیاز برای صرف‌نظر از جستجو
 
 async function searchYouTube(keyword, cookie) {
   if (!cookie) throw new Error('Invalid cookie');
@@ -64,17 +66,37 @@ export async function searchAndStoreVideos() {
   for (const lang of LANGS) {
     const keywordsPath = `data/keywords/${lang}.json`;
     if (!fs.existsSync(keywordsPath)) {
-      console.warn(`Skipping ${lang}: keywords file not found`);
+      console.warn(`⚠️ Skipping ${lang}: keywords file not found`);
+      continue;
+    }
+
+    // بارگیری ویدیوهای موجود
+    let existingVideos = [];
+    try {
+      if (fs.existsSync(`data/videos/${lang}.json`)) {
+        existingVideos = JSON.parse(fs.readFileSync(`data/videos/${lang}.json`, 'utf-8'));
+        console.log(`ℹ️ [${lang}] Loaded ${existingVideos.length} existing videos`);
+      }
+    } catch (e) {
+      console.warn(`⚠️ Error loading existing videos for ${lang}:`, e.message);
+    }
+
+    // اگر ویدیوهای کافی موجود است، جستجو نکنید
+    if (existingVideos.length >= MIN_VIDEOS_FOR_SKIP) {
+      console.log(`⏩ [${lang}] Skipping search (enough videos already)`);
       continue;
     }
 
     const keywords = JSON.parse(validateFile(keywordsPath));
-    const results = [];
+    const results = [...existingVideos];
+    let keywordsProcessed = 0;
 
     for (const keyword of keywords) {
+      if (results.length >= MAX_VIDEOS_PER_LANG) break;
+
       const validAccounts = ACCOUNTS.filter(a => a.cookie);
       if (validAccounts.length === 0) {
-        throw new Error('No valid accounts available');
+        throw new Error('❌ No valid accounts available');
       }
 
       const account = pickRandom(validAccounts);
@@ -85,25 +107,29 @@ export async function searchAndStoreVideos() {
           MAX_ATTEMPTS
         );
         
-        results.push(...videos);
-        console.log(`🔍 [${lang}] Found ${videos.length} videos for "${keyword}"`);
+        // فیلتر ویدیوهای تکراری
+        const newVideos = videos.filter(v => 
+          !results.some(existing => existing.videoId === v.videoId)
+        );
         
-        await delay(3000 + Math.random() * 4000);
+        results.push(...newVideos);
+        keywordsProcessed++;
+        console.log(`🔍 [${lang}] Found ${newVideos.length} new videos for "${keyword}" (Total: ${results.length})`);
+        
+        await delay(2000 + Math.random() * 3000); // کاهش تاخیر
       } catch (e) {
-        console.warn(`❌ [${lang}] Failed for "${keyword}": ${e.message}`);
+        console.warn(`⚠️ [${lang}] Failed for "${keyword}":`, e.message);
       }
     }
 
-    const uniqueVideos = Object.values(
-      results.reduce((acc, video) => {
-        if (video.videoId) acc[video.videoId] = video;
-        return acc;
-      }, {})
-    );
-    
-    if (uniqueVideos.length > 0) {
+    // ذخیره فقط اگر ویدیوی جدیدی اضافه شده
+    if (keywordsProcessed > 0) {
+      const uniqueVideos = results
+        .filter((v, i, a) => a.findIndex(t => t.videoId === v.videoId) === i)
+        .slice(0, MAX_VIDEOS_PER_LANG);
+      
       fs.writeFileSync(`data/videos/${lang}.json`, JSON.stringify(uniqueVideos, null, 2));
-      console.log(`✅ [${lang}] Saved ${uniqueVideos.length} unique videos`);
+      console.log(`✅ [${lang}] Saved ${uniqueVideos.length} videos (${keywordsProcessed} keywords processed)`);
     }
   }
 }
