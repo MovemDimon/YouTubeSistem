@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { ACCOUNTS } from './youtube_cookies.js';
-import { pickRandom, sleep, retryOperation, validateFile } from './utils.js';
+import { pickRandom, delay, retryOperation, validateFile } from './utils.js'; // تغییر sleep به delay
 
 const LANGS = ['en', 'fa', 'ru', 'es', 'hi'];
 const MAX_ATTEMPTS = 3;
@@ -58,6 +58,11 @@ async function searchYouTube(keyword, cookie) {
 }
 
 async function main() {
+  // ایجاد پوشه videos اگر وجود ندارد
+  if (!fs.existsSync('data/videos')) {
+    fs.mkdirSync('data/videos', { recursive: true });
+  }
+
   for (const lang of LANGS) {
     const keywordsPath = `data/keywords/${lang}.json`;
     if (!fs.existsSync(keywordsPath)) {
@@ -85,7 +90,7 @@ async function main() {
         results.push(...videos);
         console.log(`🔍 [${lang}] Found ${videos.length} videos for "${keyword}"`);
         
-        await sleep(3000 + Math.random() * 4000);
+        await delay(3000 + Math.random() * 4000); // تغییر sleep به delay
       } catch (e) {
         console.warn(`❌ [${lang}] Failed for "${keyword}": ${e.message}`);
       }
