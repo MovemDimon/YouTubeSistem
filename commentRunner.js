@@ -1,9 +1,8 @@
 import { ACCOUNTS } from "./youtube_cookies.js";
-import { delay, shuffle, retryOperation, validateFile } from "./utils.js";
+import { delay, shuffle, retryOperation, validateFile, getLangFromFilename } from "./utils.js";
 import { searchAndStoreVideos } from "./searchAndStoreVideos.js";
 import { postComment, likeComment, postReply } from "./youtubeActions.js";
 import fs from "fs";
-import path from "path";
 import { Octokit } from "@octokit/rest";
 
 const MAX_COMMENTS = 10000;
@@ -29,26 +28,35 @@ async function updateStatusGitHub(GH_TOKEN, postedCount) {
     path: "status.json",
   };
 
-  const { data } = await octokit.repos.getContent({ ...repo });
-  const sha = data.sha;
-  
-  const newStatus = {
-    posted_comments: postedCount,
-    max_comments: MAX_COMMENTS,
-    last_updated: new Date().toISOString()
-  };
-  
-  const content = Buffer.from(JSON.stringify(newStatus, null, 2)).toString("base64");
+  try {
+    const { data } = await octokit.repos.getContent({ ...repo });
+    const sha = data.sha;
+    
+    const newStatus = {
+      posted_comments: postedCount,
+      max_comments: MAX_COMMENTS,
+      last_updated: new Date().toISOString()
+    };
+    
+    const content = Buffer.from(JSON.stringify(newStatus, null, 2)).toString("base64");
 
-  await octokit.repos.createOrUpdateFileContents({
-    ...repo,
-    message: `Update status to ${postedCount}`,
-    content,
-    sha,
-  });
+    await octokit.repos.createOrUpdateFileContents({
+      ...repo,
+      message: `Update status to ${postedCount}`,
+      content,
+      sha,
+    });
+  } catch (e) {
+    console.error("⚠️ Failed to update GitHub status:", e.message);
+  }
 }
 
 async function main() {
+  console.log("🔍 Checking accounts...");
+  ACCOUNTS.forEach(acc => {
+    console.log(`   ${acc.name}: ${acc.cookie ? '✅ Valid' : '❌ Invalid'}`);
+  });
+
   const status = loadStatus();
   if (status.posted_comments >= status.max_comments) {
     console.log("✅ Goal reached. Exiting.");
@@ -98,7 +106,6 @@ async function main() {
       count++;
       consecutiveErrors = 0;
 
-      // لایک کردن کامنت با حساب‌های دیگر
       const likers = shuffle(ACCOUNTS.filter(a => a.cookie && a !== account)).slice(0, 7);
       for (const acc of likers) {
         try {
@@ -113,7 +120,6 @@ async function main() {
         }
       }
 
-      // ارسال پاسخ‌ها
       const replyCount = Math.floor(Math.random() * 4);
       const replies = shuffle(
         validateFile(`data/replies/${lang}.txt`).split("\n").filter(Boolean)
@@ -145,7 +151,6 @@ async function main() {
       }
     }
 
-    // تاخیر بین ویدیوهای مختلف
     if (index < selected.length - 1) {
       await delay(15000 + Math.random() * 15000);
     }
