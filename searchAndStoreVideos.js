@@ -1,6 +1,7 @@
 import fs from 'fs';
+import path from 'path';
 import { ACCOUNTS } from './youtube_cookies.js';
-import { pickRandom, delay, retryOperation } from './utils.js';
+import { pickRandom, delay, retryOperation, ensureFileExists, readJSONFile } from './utils.js';
 
 const LANGS = ['en', 'fa', 'ru', 'es', 'hi'];
 const MAX_ATTEMPTS = 3;
@@ -29,34 +30,41 @@ async function searchYouTube(keyword, cookie) {
 }
 
 export async function searchAndStoreVideos() {
-  // ایجاد پوشه‌ها اگر وجود نداشته باشند
-  if (!fs.existsSync(`${DATA_PATH}/videos`)) {
-    fs.mkdirSync(`${DATA_PATH}/videos`, { recursive: true });
-  }
+  // ایجاد پوشه‌ها اگر وجود ندارند
+  const videosDir = `${DATA_PATH}/videos`;
+  const keywordsDir = `${DATA_PATH}/keywords`;
   
-  if (!fs.existsSync(`${DATA_PATH}/keywords`)) {
-    fs.mkdirSync(`${DATA_PATH}/keywords`, { recursive: true });
-  }
+  ensureFileExists(videosDir, '', true);
+  ensureFileExists(keywordsDir, '', true);
 
   for (const lang of LANGS) {
-    const videoFile = `${DATA_PATH}/videos/${lang}.json`;
-    const keywordFile = `${DATA_PATH}/keywords/${lang}.json`;
+    const videoFile = `${videosDir}/${lang}.json`;
+    const keywordFile = `${keywordsDir}/${lang}.json`;
     
-    // ایجاد فایل‌ها اگر وجود نداشته باشند
-    if (!fs.existsSync(videoFile)) fs.writeFileSync(videoFile, '[]');
-    if (!fs.existsSync(keywordFile)) fs.writeFileSync(keywordFile, '[]');
-    
-    // بررسی تعداد ویدیوهای موجود
-    let videos = JSON.parse(fs.readFileSync(videoFile, 'utf-8'));
+    // ایجاد فایل‌ها اگر وجود ندارند
+    ensureFileExists(videoFile, '[]');
+    ensureFileExists(keywordFile, '[]');
+
+    // خواندن ایمن فایل‌ها
+    let videos = readJSONFile(videoFile, []);
+    const keywords = readJSONFile(keywordFile, []);
+
+    // اگر کلمات کلیدی وجود ندارند، از کلمات پیش‌فرض استفاده کنید
+    if (keywords.length === 0) {
+      console.warn(`⚠️ No keywords for ${lang}, using fallback...`);
+      const fallbackKeywords = {
+        en: ["technology", "programming", "web development"],
+        fa: ["تکنولوژی", "برنامه نویسی", "یوتیوب"],
+        ru: ["технологии", "программирование", "интернет"],
+        es: ["tecnología", "programación", "desarrollo web"],
+        hi: ["तकनीक", "प्रोग्रामिंग", "वेब विकास"]
+      };
+      fs.writeFileSync(keywordFile, JSON.stringify(fallbackKeywords[lang] || fallbackKeywords.en, null, 2));
+    }
+
+    // اگر هنوز ویدیوهای کافی داریم، ادامه ندهید
     if (videos.length >= MIN_VIDEOS_PER_LANG) {
       console.log(`⏩ Skipping ${lang}, enough videos (${videos.length})`);
-      continue;
-    }
-    
-    // بارگیری کلمات کلیدی
-    const keywords = JSON.parse(fs.readFileSync(keywordFile, 'utf-8'));
-    if (keywords.length === 0) {
-      console.warn(`⚠️ No keywords for ${lang}, skipping...`);
       continue;
     }
     
@@ -81,10 +89,16 @@ export async function searchAndStoreVideos() {
         
         if (uniqueVideos.length > 0) {
           videos = [...videos, ...uniqueVideos];
-          fs.writeFileSync(videoFile, JSON.stringify(videos, null, 2));
+          
+          // ذخیره موقت در فایل
+          const tempFile = `${videoFile}.tmp`;
+          fs.writeFileSync(tempFile, JSON.stringify(videos, null, 2));
+          fs.renameSync(tempFile, videoFile);
+          
           console.log(`✅ Added ${uniqueVideos.length} videos for "${keyword}"`);
         }
         
+        // تأخیر انسانی بین جستجوها
         await delay(2000 + Math.random() * 3000);
       } catch (error) {
         console.error(`❌ Search failed for "${keyword}":`, error.message);
