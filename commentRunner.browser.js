@@ -1,4 +1,4 @@
-import { initBrowser, postComment, postReply, likeComment } from './youtubeBrowserActions.js';
+import { initBrowser, postComment } from './youtubeBrowserActions.js';
 import { ACCOUNTS } from './youtube_cookies.js';
 import { delay, shuffle } from './utils.js';
 import fs from 'fs';
@@ -13,16 +13,23 @@ async function main() {
   });
 
   try {
-    // بارگیری وضعیت
-    const status = JSON.parse(fs.readFileSync('status.json', 'utf-8') || { posted_comments: 0 };
+    // بارگیری وضعیت با هندلینگ خطا
+    let status;
+    try {
+      status = JSON.parse(fs.readFileSync('status.json', 'utf-8')) || { posted_comments: 0 };
+    } catch (e) {
+      status = { posted_comments: 0 };
+    }
     
     // انتخاب زبان و ویدیوها
-    const lang = 'hi'; // یا انتخاب داینامیک
+    const lang = 'hi';
     const videos = JSON.parse(fs.readFileSync(`data/videos/${lang}.json`, 'utf-8'));
     const selected = shuffle(videos).slice(0, 5);
 
     // انتخاب حساب تصادفی
-    const account = shuffle(ACCOUNTS.filter(a => a.cookie))[0];
+    const validAccounts = ACCOUNTS.filter(a => a.cookie);
+    if (validAccounts.length === 0) throw new Error('No valid accounts available');
+    const account = shuffle(validAccounts)[0];
 
     for (const video of selected) {
       try {
@@ -34,7 +41,7 @@ async function main() {
         
         // افزایش شمارنده
         status.posted_comments++;
-        fs.writeFileSync('status.json', JSON.stringify(status));
+        fs.writeFileSync('status.json', JSON.stringify(status, null, 2));
         
         // تاخیر تصادفی
         const waitTime = MIN_DELAY + Math.random() * 30000;
