@@ -1,7 +1,7 @@
 import fetch from 'node-fetch';
 import { delay } from './utils.js';
 
-const YOUTUBE_COMMENT_URL = 'https://www.youtube.com/comment_service_ajax';
+const YOUTUBE_COMMENT_URL = 'https://www.youtube.com/youtubei/v1/comment/create_comment';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
 export async function postComment(cookie, videoId, text) {
