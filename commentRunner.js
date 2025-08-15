@@ -7,7 +7,7 @@ import { Octokit } from "@octokit/rest";
 
 const MAX_COMMENTS = 10000;
 const MAX_CONSECUTIVE_ERRORS = 5;
-const MIN_VIDEOS_REQUIRED = 5; // حداقل ویدیوهای مورد نیاز برای اجرا
+const MIN_VIDEOS_REQUIRED = 5;
 
 function loadStatus() {
   try {
@@ -54,8 +54,9 @@ async function updateStatusGitHub(GH_TOKEN, postedCount) {
 
 async function main() {
   console.log("🔍 Starting system check...");
+  let consecutiveErrors = 0; // Added missing variable
   
-  // بررسی حساب‌ها
+  // Account validation
   console.log("🔐 Account Status:");
   const validAccounts = ACCOUNTS.filter(a => a.cookie);
   ACCOUNTS.forEach(acc => {
@@ -66,14 +67,14 @@ async function main() {
     throw new Error("❌ Need at least 3 valid accounts to proceed");
   }
 
-  // بررسی وضعیت
+  // Status check
   const status = loadStatus();
   if (status.posted_comments >= status.max_comments) {
     console.log("✅ Goal reached. Exiting.");
     return;
   }
 
-  // انتخاب زبان
+  // Language selection
   const langs = fs.readdirSync("data/comments").filter(f => f.endsWith(".txt"));
   if (langs.length === 0) {
     throw new Error("❌ No comment files found in data/comments");
@@ -82,13 +83,23 @@ async function main() {
   const lang = getLangFromFilename(shuffle(langs)[0]);
   console.log(`🌐 Selected language: ${lang}`);
 
-  // مدیریت ویدیوها
+  // Video management
   const videoPath = `data/videos/${lang}.json`;
   let videos = [];
   
   try {
     if (fs.existsSync(videoPath)) {
       videos = JSON.parse(fs.readFileSync(videoPath, "utf-8"));
+      
+      // Convert legacy videoId format to id
+      if (videos.length > 0 && videos[0].videoId) {
+        videos = videos.map(v => ({
+          id: v.videoId,
+          title: v.title,
+          views: v.views
+        }));
+      }
+      
       console.log(`📹 Loaded ${videos.length} existing videos`);
     }
   } catch (e) {
@@ -101,17 +112,19 @@ async function main() {
     videos = JSON.parse(fs.readFileSync(videoPath, "utf-8"));
   }
 
-  // انتخاب ویدیوها
-  const selected = shuffle(videos).slice(0, 2);
+  // Video selection
+  const selected = shuffle(videos)
+    .filter(v => v.id) // Filter invalid videos
+    .slice(0, 2);
   let count = 0;
 
-  // عملیات اصلی
+  // Main operations
   for (const [index, video] of selected.entries()) {
     const account = shuffle(validAccounts)[0];
-    console.log(`\n🎬 Processing video: ${video.videoId} (${video.title.substring(0, 30)}...)`);
+    console.log(`\n🎬 Processing video: ${video.id} (${video.title.substring(0, 30)}...)`);
 
     try {
-      // ارسال کامنت
+      // Post comment
       const commentText = shuffle(
         validateFile(`data/comments/${lang}.txt`).split("\n").filter(Boolean)
       )[0];
@@ -125,7 +138,7 @@ async function main() {
       console.log(`💬 Comment by ${account.name}: ${commentText.substring(0, 30)}...`);
       count++;
 
-      // لایک‌ها
+      // Likes
       const likers = shuffle(validAccounts.filter(a => a !== account)).slice(0, 7);
       for (const acc of likers) {
         try {
@@ -140,7 +153,7 @@ async function main() {
         }
       }
 
-      // پاسخ‌ها
+      // Replies
       const replyCount = Math.floor(Math.random() * 4);
       const replies = shuffle(
         validateFile(`data/replies/${lang}.txt`).split("\n").filter(Boolean)
@@ -168,7 +181,7 @@ async function main() {
       }
     }
 
-    // تاخیر بین ویدیوها
+    // Delay between videos
     if (index < selected.length - 1) {
       const waitTime = 10000 + Math.random() * 10000;
       console.log(`⏳ Waiting ${Math.round(waitTime/1000)} seconds...`);
@@ -176,7 +189,7 @@ async function main() {
     }
   }
 
-  // به‌روزرسانی وضعیت
+  // Update status
   const newTotal = status.posted_comments + count;
   fs.writeFileSync("status.json", JSON.stringify({
     ...status,
