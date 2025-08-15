@@ -28,11 +28,17 @@ jobs:
         with:
           node-version: 20
           cache: 'npm'
+          cache-dependency-path: | # افزودن این بخش
+            package-lock.json
+            !**/node_modules/**
           
+      - name: Generate Package Lock
+        run: npm init -y && npm install --package-lock-only
+        
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgbm-dev libxshmfence-dev
+          sudo apt-get install -y libgbm-dev libxshmfence-dev libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2
           
       - name: Install Node Dependencies
         run: |
