@@ -24,15 +24,18 @@ jobs:
         uses: actions/checkout@v4
         
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
           
-      - name: Install Dependencies
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libgbm-dev libxshmfence-dev
+          
+      - name: Install Node Dependencies
+        run: |
           npm install puppeteer-extra puppeteer-extra-plugin-stealth puppeteer-extra-plugin-recaptcha
           
       - name: Run System
@@ -49,10 +52,11 @@ jobs:
         
       - name: Upload Debug Files
         if: failure()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: debug-screenshots
           path: |
             debug_*.png
             debug_reply_*.png
             debug_like_*.png
+          retention-days: 1
