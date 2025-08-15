@@ -2,7 +2,7 @@ import { initBrowser } from './youtubeBrowserActions.js';
 import { searchAndStoreVideos } from './searchAndStoreVideos.js';
 import { ACCOUNTS } from './youtube_cookies.js';
 import { postComment, postReply, likeComment } from './youtubeBrowserActions.js';
-import { delay, pickRandom, shuffle, readTextFile, retryOperation, ensureFileExists } from './utils.js';
+import { delay, pickRandom, shuffle, readTextFile, retryOperation, ensureFileExists, readJSONFile } from './utils.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -11,11 +11,11 @@ const MIN_VIDEOS_PER_LANG = 10;
 const LANGS = ['en', 'fa', 'ru', 'es', 'hi'];
 const COMMENT_DISTRIBUTION = ['en', 'en', 'en', 'ru', 'es', 'hi', 'fa'];
 const DATA_PATH = './data';
-const MAX_RETRIES = 2;
-const MIN_DELAY = 3000; // 3 ثانیه
-const MAX_DELAY = 10000; // 10 ثانیه
+const MAX_RETRIES = 3;
+const MIN_DELAY = 3000;
+const MAX_DELAY = 10000;
 
-// تابع جدید: ایجاد فایل‌های ضروری اگر وجود ندارند
+// تابع مقداردهی اولیه فایل‌ها
 async function initializeDataFiles() {
   // ایجاد پوشه‌های اصلی
   const directories = [
@@ -43,17 +43,21 @@ async function initializeDataFiles() {
     const commentFile = `${DATA_PATH}/comments/${lang}.txt`;
     const replyFile = `${DATA_PATH}/replies/${lang}.txt`;
     
-    if (ensureFileExists(commentFile) && fs.readFileSync(commentFile, 'utf-8').trim() === '') {
-      fs.writeFileSync(commentFile, `کامنت نمونه به زبان ${lang}\nکامنت دیگر به زبان ${lang}`);
+    if (ensureFileExists(commentFile) {
+      if (fs.readFileSync(commentFile, 'utf-8').trim() === '') {
+        fs.writeFileSync(commentFile, `کامنت نمونه به زبان ${lang}\nکامنت دیگر به زبان ${lang}`);
+      }
     }
     
-    if (ensureFileExists(replyFile) && fs.readFileSync(replyFile, 'utf-8').trim() === '') {
-      fs.writeFileSync(replyFile, `ریپلای نمونه به زبان ${lang}\nریپلای دیگر به زبان ${lang}`);
+    if (ensureFileExists(replyFile)) {
+      if (fs.readFileSync(replyFile, 'utf-8').trim() === '') {
+        fs.writeFileSync(replyFile, `ریپلای نمونه به زبان ${lang}\nریپلای دیگر به زبان ${lang}`);
+      }
     }
   });
 }
 
-// تابع بهبود یافته برای بررسی وضعیت ویدیوها
+// تابع بررسی وضعیت ویدیوها
 async function ensureVideoCounts() {
   for (const lang of LANGS) {
     const videoFile = `${DATA_PATH}/videos/${lang}.json`;
@@ -89,18 +93,20 @@ async function ensureVideoCounts() {
   }
 }
 
-// تابع بهبود یافته برای اجرای اصلی
+// تابع اجرای اصلی
 async function main() {
+  let browserInstances = [];
+  
   try {
     // مرحله 0: مقداردهی اولیه فایل‌ها
     console.log('⚙️ Initializing data files...');
     await initializeDataFiles();
     
-    // مرحله 1: بررسی ویدیوها با مدیریت خطا
+    // مرحله 1: بررسی ویدیوها
     console.log('🔍 Checking video counts...');
     await ensureVideoCounts();
 
-    // مرحله 2: آماده‌سازی داده‌ها با بررسی وجود فایل‌ها
+    // مرحله 2: آماده‌سازی داده‌ها
     console.log('📚 Loading comments and replies...');
     const comments = {};
     const replies = {};
@@ -109,20 +115,18 @@ async function main() {
       const commentFile = `${DATA_PATH}/comments/${lang}.txt`;
       const replyFile = `${DATA_PATH}/replies/${lang}.txt`;
       
-      // ایجاد فایل‌های کامنت و ریپلای اگر وجود ندارند
       ensureFileExists(commentFile, `کامنت نمونه به زبان ${lang}`);
       ensureFileExists(replyFile, `ریپلای نمونه به زبان ${lang}`);
       
       comments[lang] = readTextFile(commentFile);
       replies[lang] = readTextFile(replyFile);
       
-      // بررسی وجود کامنت‌ها
       if (comments[lang].length === 0) {
         throw new Error(`No comments found for ${lang}`);
       }
     }
 
-    // مرحله 3: تنظیم حساب‌ها با اعتبارسنجی
+    // مرحله 3: تنظیم حساب‌ها
     console.log('👥 Validating and setting up accounts...');
     const validAccounts = ACCOUNTS.filter(a => a.cookie && a.cookie.length > 30);
     
@@ -133,9 +137,33 @@ async function main() {
     const activeAccounts = shuffle(validAccounts.slice(0, 7));
     const langAssignment = shuffle([...COMMENT_DISTRIBUTION]);
     
-    const browserInstances = await Promise.all(
-      activeAccounts.map(() => initBrowser({ headless: true, stealth: true }))
-    );
+    // راه‌اندازی مرورگرها با مدیریت خطا
+    browserInstances = [];
+    for (const account of activeAccounts) {
+      try {
+        const browser = await retryOperation(
+          () => initBrowser({ 
+            headless: true,
+            stealth: true,
+            slowMo: 100 // کاهش سرعت برای پایداری بیشتر
+          }),
+          "initBrowser",
+          3 // 3 بار تلاش مجدد
+        );
+        browserInstances.push(browser);
+        console.log(`✅ Browser for account ${account.name} initialized`);
+      } catch (error) {
+        console.error(`❌ Failed to initialize browser for account ${account.name}:`, error.message);
+        // ایجاد مرورگر جایگزین با تنظیمات ساده‌تر
+        console.log('🔄 Trying simplified browser setup...');
+        const fallbackBrowser = await initBrowser({
+          headless: true,
+          args: ['--no-sandbox', '--disable-setuid-sandbox'],
+          protocolTimeout: 120000 // تایم‌اوت 120 ثانیه
+        });
+        browserInstances.push(fallbackBrowser);
+      }
+    }
 
     // مرحله 4: ارسال کامنت‌ها
     console.log('💬 Starting comment posting...');
@@ -202,7 +230,7 @@ async function main() {
       }
     }
 
-    // مرحله 5: تعاملات اضافی (لایک‌ها و ریپلای‌ها)
+    // مرحله 5: تعاملات اضافی
     console.log('🔄 Processing interactions...');
     for (const comment of postedComments) {
       // تعیین تعداد لایک‌ها (3-7)
@@ -265,9 +293,16 @@ async function main() {
     console.error('‼️ Critical system error:', error);
     process.exit(1);
   } finally {
-    // بستن مرورگرها
-    await Promise.all(browserInstances.map(browser => browser.close()));
-    console.log('🔒 All browsers closed');
+    // بستن مرورگرها با مدیریت خطا
+    console.log('🔒 Closing all browsers...');
+    for (const browser of browserInstances) {
+      try {
+        await browser.close();
+        console.log('✅ Browser closed successfully');
+      } catch (e) {
+        console.error('❌ Error closing browser:', e.message);
+      }
+    }
   }
 }
 
