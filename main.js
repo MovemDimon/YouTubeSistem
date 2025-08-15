@@ -2,7 +2,7 @@ import { initBrowser } from './youtubeBrowserActions.js';
 import { searchAndStoreVideos } from './searchAndStoreVideos.js';
 import { ACCOUNTS } from './youtube_cookies.js';
 import { postComment, postReply, likeComment } from './youtubeBrowserActions.js';
-import { delay, pickRandom, shuffle, readTextFile, retryOperation } from './utils.js';
+import { delay, pickRandom, shuffle, readTextFile, retryOperation, ensureFileExists } from './utils.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -15,17 +15,69 @@ const MAX_RETRIES = 2;
 const MIN_DELAY = 3000; // 3 ثانیه
 const MAX_DELAY = 10000; // 10 ثانیه
 
-// بررسی وضعیت ویدیوها
+// تابع جدید: ایجاد فایل‌های ضروری اگر وجود ندارند
+async function initializeDataFiles() {
+  // ایجاد پوشه‌های اصلی
+  const directories = [
+    `${DATA_PATH}/videos`,
+    `${DATA_PATH}/comments`,
+    `${DATA_PATH}/replies`,
+    `${DATA_PATH}/keywords`
+  ];
+  
+  directories.forEach(dir => {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+      console.log(`📁 Created directory: ${dir}`);
+    }
+  });
+  
+  // ایجاد فایل‌های ویدیو خالی اگر وجود ندارند
+  LANGS.forEach(lang => {
+    const videoFile = `${DATA_PATH}/videos/${lang}.json`;
+    ensureFileExists(videoFile, '[]');
+  });
+  
+  // ایجاد فایل‌های کامنت و ریپلای نمونه اگر خالی هستند
+  LANGS.forEach(lang => {
+    const commentFile = `${DATA_PATH}/comments/${lang}.txt`;
+    const replyFile = `${DATA_PATH}/replies/${lang}.txt`;
+    
+    if (ensureFileExists(commentFile) && fs.readFileSync(commentFile, 'utf-8').trim() === '') {
+      fs.writeFileSync(commentFile, `کامنت نمونه به زبان ${lang}\nکامنت دیگر به زبان ${lang}`);
+    }
+    
+    if (ensureFileExists(replyFile) && fs.readFileSync(replyFile, 'utf-8').trim() === '') {
+      fs.writeFileSync(replyFile, `ریپلای نمونه به زبان ${lang}\nریپلای دیگر به زبان ${lang}`);
+    }
+  });
+}
+
+// تابع بهبود یافته برای بررسی وضعیت ویدیوها
 async function ensureVideoCounts() {
   for (const lang of LANGS) {
     const videoFile = `${DATA_PATH}/videos/${lang}.json`;
     
-    if (!fs.existsSync(videoFile)) {
-      fs.mkdirSync(path.dirname(videoFile), { recursive: true });
+    // ایجاد فایل اگر وجود ندارد
+    ensureFileExists(videoFile, '[]');
+    
+    // خواندن و پردازش ایمن فایل JSON
+    let videos = [];
+    try {
+      const content = fs.readFileSync(videoFile, 'utf-8').trim();
+      
+      if (content) {
+        videos = JSON.parse(content);
+      } else {
+        console.warn(`⚠️ Empty file detected for ${lang}, initializing...`);
+        fs.writeFileSync(videoFile, '[]');
+      }
+    } catch (e) {
+      console.error(`❌ Error parsing ${videoFile}:`, e.message);
+      console.log('Reinitializing video file...');
       fs.writeFileSync(videoFile, '[]');
     }
 
-    const videos = JSON.parse(fs.readFileSync(videoFile, 'utf-8'));
     if (videos.length < MIN_VIDEOS_PER_LANG) {
       console.log(`⚠️ ${lang} has only ${videos.length} videos, collecting more...`);
       await retryOperation(
@@ -37,36 +89,50 @@ async function ensureVideoCounts() {
   }
 }
 
-// اجرای فرآیند اصلی
+// تابع بهبود یافته برای اجرای اصلی
 async function main() {
   try {
-    // مرحله 1: بررسی ویدیوها
+    // مرحله 0: مقداردهی اولیه فایل‌ها
+    console.log('⚙️ Initializing data files...');
+    await initializeDataFiles();
+    
+    // مرحله 1: بررسی ویدیوها با مدیریت خطا
     console.log('🔍 Checking video counts...');
     await ensureVideoCounts();
 
-    // مرحله 2: آماده‌سازی داده‌ها
+    // مرحله 2: آماده‌سازی داده‌ها با بررسی وجود فایل‌ها
     console.log('📚 Loading comments and replies...');
     const comments = {};
     const replies = {};
     
     for (const lang of LANGS) {
-      comments[lang] = readTextFile(`${DATA_PATH}/comments/${lang}.txt`);
-      replies[lang] = readTextFile(`${DATA_PATH}/replies/${lang}.txt`);
+      const commentFile = `${DATA_PATH}/comments/${lang}.txt`;
+      const replyFile = `${DATA_PATH}/replies/${lang}.txt`;
       
+      // ایجاد فایل‌های کامنت و ریپلای اگر وجود ندارند
+      ensureFileExists(commentFile, `کامنت نمونه به زبان ${lang}`);
+      ensureFileExists(replyFile, `ریپلای نمونه به زبان ${lang}`);
+      
+      comments[lang] = readTextFile(commentFile);
+      replies[lang] = readTextFile(replyFile);
+      
+      // بررسی وجود کامنت‌ها
       if (comments[lang].length === 0) {
         throw new Error(`No comments found for ${lang}`);
       }
     }
 
-    // مرحله 3: تنظیم حساب‌ها
-    console.log('👥 Setting up accounts...');
-    const activeAccounts = shuffle(ACCOUNTS.filter(a => a.cookie).slice(0, 7));
+    // مرحله 3: تنظیم حساب‌ها با اعتبارسنجی
+    console.log('👥 Validating and setting up accounts...');
+    const validAccounts = ACCOUNTS.filter(a => a.cookie && a.cookie.length > 30);
     
-    if (activeAccounts.length < 7) {
-      throw new Error('Not enough valid accounts (minimum 7 required)');
+    if (validAccounts.length < 7) {
+      throw new Error(`Only ${validAccounts.length} valid accounts found, need 7`);
     }
     
+    const activeAccounts = shuffle(validAccounts.slice(0, 7));
     const langAssignment = shuffle([...COMMENT_DISTRIBUTION]);
+    
     const browserInstances = await Promise.all(
       activeAccounts.map(() => initBrowser({ headless: true, stealth: true }))
     );
@@ -86,12 +152,28 @@ async function main() {
       await delay(delayTime);
       
       try {
-        // انتخاب تصادفی ویدیو و کامنت
-        const videos = JSON.parse(fs.readFileSync(`${DATA_PATH}/videos/${lang}.json`, 'utf-8'));
+        // خواندن ویدیوها با مدیریت خطا
+        const videoFile = `${DATA_PATH}/videos/${lang}.json`;
+        let videos = [];
+        
+        try {
+          videos = JSON.parse(fs.readFileSync(videoFile, 'utf-8'));
+        } catch (e) {
+          console.error(`❌ Error reading videos for ${lang}:`, e.message);
+          // اگر خطا در خواندن فایل، از فایل زبانی دیگر استفاده کن
+          const fallbackLang = LANGS.find(l => l !== lang) || 'en';
+          console.log(`🔄 Using fallback language: ${fallbackLang}`);
+          videos = JSON.parse(fs.readFileSync(`${DATA_PATH}/videos/${fallbackLang}.json`, 'utf-8'));
+        }
+        
+        if (videos.length === 0) {
+          throw new Error(`No videos available for ${lang}`);
+        }
+        
         const video = pickRandom(videos);
         const comment = pickRandom(comments[lang]);
 
-        console.log(`📝 Posting ${lang} comment to video: ${video.id}`);
+        console.log(`📝 [${lang}] Posting comment to video: ${video.id}`);
         const commentId = await retryOperation(
           () => postComment(browser, account.cookie, video.id, comment),
           "postComment",
