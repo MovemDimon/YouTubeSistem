@@ -1,9 +1,43 @@
 import fs from 'fs';
 import path from 'path';
 
+// تابع جدید: ایجاد فایل اگر وجود ندارد
+export function ensureFileExists(filePath, defaultValue = '') {
+  const dir = path.dirname(filePath);
+  
+  // ایجاد پوشه اگر وجود ندارد
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  
+  // ایجاد فایل اگر وجود ندارد
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, defaultValue);
+    console.log(`📄 Created file: ${filePath}`);
+    return true;
+  }
+  
+  return false;
+}
+
+// تابع جدید: خواندن ایمن فایل‌های JSON
+export function readJSONFile(filePath, defaultValue = []) {
+  ensureFileExists(filePath, '[]');
+  
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8').trim();
+    return content ? JSON.parse(content) : defaultValue;
+  } catch (error) {
+    console.error(`Error reading JSON file ${filePath}:`, error.message);
+    return defaultValue;
+  }
+}
+
+// بقیه توابع (بدون تغییر)
 export const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export function pickRandom(arr) {
+  if (!arr || arr.length === 0) return null;
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
@@ -17,22 +51,16 @@ export function shuffle(arr) {
 }
 
 export function readTextFile(filePath) {
+  ensureFileExists(filePath, 'Sample content');
+  
   try {
-    if (!fs.existsSync(filePath)) {
-      throw new Error(`File not found: ${filePath}`);
-    }
-    
     const content = fs.readFileSync(filePath, 'utf-8');
-    if (!content.trim()) {
-      throw new Error(`Empty file: ${filePath}`);
-    }
-    
     return content
       .split('\n')
       .filter(line => line.trim())
       .map(line => line.trim());
   } catch (error) {
-    console.error(`Error reading ${filePath}:`, error.message);
+    console.error(`Error reading text file ${filePath}:`, error.message);
     return [];
   }
 }
