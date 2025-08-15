@@ -46,8 +46,17 @@ jobs:
             libxrandr2 \
             libgbm1 \
             libasound2t64 \
-            libpangocairo-1.0-0t64  # تغییر این خطا - استفاده از نام صحیح پکیج
-            
+            libpangocairo-1.0-0 \
+            libpango-1.0-0 \
+            libpangoft2-1.0-0 \
+            fonts-liberation \
+            libappindicator3-1 \
+            libjpeg-dev \
+            libx11-xcb1 \
+            libxtst6 \
+            x11-utils \
+            xdg-utils
+          
       - name: Install Node Dependencies
         run: |
           npm install puppeteer@24.9.0 jsdom@22.1.0 node-fetch@3.3.2 @octokit/rest@20.0.0
