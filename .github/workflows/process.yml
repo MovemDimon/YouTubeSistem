@@ -45,8 +45,8 @@ jobs:
             libxfixes3 \
             libxrandr2 \
             libgbm1 \
-            libasound2t64  # تغییر این خطا - جایگزین libasound2
-            libpangocairo-1.0-0
+            libasound2t64 \
+            libpangocairo-1.0-0t64  # تغییر این خطا - استفاده از نام صحیح پکیج
             
       - name: Install Node Dependencies
         run: |
