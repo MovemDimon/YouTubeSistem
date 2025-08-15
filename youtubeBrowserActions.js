@@ -12,33 +12,36 @@ puppeteer.use(
   })
 );
 
-// تنظیمات رفتار انسانی
-const HUMAN_LIKE_DELAY = {
-  min: 100,
-  max: 500,
-  typing: 50,
-  action: 1000
-};
+// تنظیمات جدید برای محیط GitHub Actions
+const BROWSER_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-accelerated-2d-canvas',
+  '--disable-gpu',
+  '--disable-software-rasterizer',
+  '--disable-features=IsolateOrigins,site-per-process',
+  '--enable-features=NetworkService',
+  '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
+];
 
-// ایجاد مرورگر با قابلیت استیلث
+// تابع ایجاد مرورگر
 export async function initBrowser(opts = {}) {
   const browser = await puppeteer.launch({
     headless: opts.headless ?? 'new',
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-web-security',
-      '--disable-features=IsolateOrigins,site-per-process',
-      '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
-    ],
+    args: BROWSER_ARGS,
     defaultViewport: { width: 1366, height: 768 },
-    ignoreHTTPSErrors: true
+    ignoreHTTPSErrors: true,
+    protocolTimeout: 60000, // افزایش تایم‌اوت به 60 ثانیه
+    dumpio: true, // فعال‌سازی لاگ‌های دیباگ
+    slowMo: opts.slowMo || 0 // کاهش سرعت عملیات
   });
+  
+  console.log('✅ Browser initialized successfully');
   return browser;
 }
 
-// تنظیم کوکی‌ها به صورت امن
+// تنظیم کوکی‌ها
 async function setCookies(page, cookie) {
   await page.setCookie({
     name: 'CONSENT',
@@ -61,7 +64,7 @@ async function setCookies(page, cookie) {
   });
   
   await page.setCookie(...cookies);
-  await delay(HUMAN_LIKE_DELAY.action);
+  await delay(1000);
 }
 
 // بررسی فعال بودن کامنت‌ها
@@ -79,7 +82,7 @@ async function checkCommentsEnabled(page) {
   return true;
 }
 
-// ارسال کامنت با مدیریت خطاهای یوتیوب
+// ارسال کامنت
 export async function postComment(browser, cookie, videoId, text) {
   const page = await browser.newPage();
   try {
@@ -96,7 +99,7 @@ export async function postComment(browser, cookie, videoId, text) {
     // بازکردن ویدیو
     await page.goto(`https://www.youtube.com/watch?v=${videoId}`, {
       waitUntil: 'domcontentloaded',
-      timeout: 20000
+      timeout: 30000
     });
     
     // بررسی خطاهای یوتیوب
@@ -107,38 +110,36 @@ export async function postComment(browser, cookie, videoId, text) {
     }
     
     // اسکرول به بخش کامنت‌ها
-    await page.evaluate(() => window.scrollTo(0, 800));
-    await delay(HUMAN_LIKE_DELAY.action);
+    await page.evaluate(() => window.scrollBy(0, 1200));
+    await delay(2000);
     
     // بررسی فعال بودن کامنت‌ها
     await checkCommentsEnabled(page);
     
     // فعال‌سازی باکس کامنت
-    const commentBox = await page.waitForSelector('#placeholder-area', { timeout: 10000 });
-    await commentBox.click();
-    await delay(HUMAN_LIKE_DELAY.action);
+    const commentBox = await page.$('#placeholder-area');
+    if (!commentBox) throw new Error('Comment box not found');
     
-    // تایپ کامنت با رفتار انسانی
-    const commentInput = await page.$('#contenteditable-root');
-    for (const char of text) {
-      await commentInput.type(char, {
-        delay: HUMAN_LIKE_DELAY.typing + Math.random() * HUMAN_LIKE_DELAY.typing
-      });
-    }
-    await delay(HUMAN_LIKE_DELAY.action);
+    await commentBox.click();
+    await delay(1000);
+    
+    // تایپ کامنت
+    await page.keyboard.type(text, { 
+      delay: 30 + Math.random() * 70
+    });
+    await delay(1000);
     
     // ارسال کامنت
-    const submitButton = await page.waitForSelector('#submit-button:not([disabled])', { timeout: 5000 });
-    await submitButton.click();
+    const submitButton = await page.$('#submit-button');
+    if (!submitButton) throw new Error('Submit button not found');
     
-    // انتظار برای تأیید ارسال
-    await page.waitForSelector('.ytp-videowall-still', { timeout: 5000 });
+    await submitButton.click();
     await delay(3000);
     
     // دریافت شناسه کامنت
     const commentId = await page.evaluate(() => {
       const comments = document.querySelectorAll('ytd-comment-thread-renderer');
-      return comments.length > 0 ? comments[comments.length - 1].getAttribute('data-comment-id') : null;
+      return comments[comments.length - 1]?.getAttribute('data-comment-id');
     });
     
     if (!commentId) throw new Error('Failed to get comment ID');
@@ -153,7 +154,7 @@ export async function postComment(browser, cookie, videoId, text) {
   }
 }
 
-// ارسال ریپلای با مدیریت خطاها
+// ارسال ریپلای
 export async function postReply(browser, cookie, videoId, commentId, text) {
   const page = await browser.newPage();
   try {
@@ -165,29 +166,31 @@ export async function postReply(browser, cookie, videoId, commentId, text) {
     await setCookies(page, cookie);
     await page.goto(`https://www.youtube.com/watch?v=${videoId}&lc=${commentId}`, {
       waitUntil: 'domcontentloaded',
-      timeout: 20000
+      timeout: 30000
     });
     
     // بازکردن بخش ریپلای
-    const replyButton = await page.waitForSelector(`[data-comment-id="${commentId}"] #reply-button`, { timeout: 10000 });
+    const replyButton = await page.$(`[data-comment-id="${commentId}"] #reply-button`);
+    if (!replyButton) throw new Error('Reply button not found');
+    
     await replyButton.click();
-    await delay(HUMAN_LIKE_DELAY.action);
+    await delay(1000);
     
     // تایپ ریپلای
-    const replyInput = await page.waitForSelector('#contenteditable-root', { timeout: 5000 });
-    for (const char of text) {
-      await replyInput.type(char, {
-        delay: HUMAN_LIKE_DELAY.typing + Math.random() * HUMAN_LIKE_DELAY.typing
-      });
-    }
-    await delay(HUMAN_LIKE_DELAY.action);
+    const replyBox = await page.$('#contenteditable-root');
+    if (!replyBox) throw new Error('Reply box not found');
+    
+    await replyBox.click();
+    await page.keyboard.type(text, {
+      delay: 30 + Math.random() * 70
+    });
+    await delay(1000);
     
     // ارسال ریپلای
-    const submitButton = await page.waitForSelector('#submit-button:not([disabled])', { timeout: 5000 });
-    await submitButton.click();
+    const submitButton = await page.$('#submit-button');
+    if (!submitButton) throw new Error('Reply submit button not found');
     
-    // انتظار برای تأیید ارسال
-    await page.waitForSelector('.ytp-videowall-still', { timeout: 5000 });
+    await submitButton.click();
     await delay(3000);
     
     return true;
@@ -199,7 +202,7 @@ export async function postReply(browser, cookie, videoId, commentId, text) {
   }
 }
 
-// لایک کامنت با مدیریت خطاها
+// لایک کامنت
 export async function likeComment(browser, cookie, videoId, commentId) {
   const page = await browser.newPage();
   try {
@@ -211,21 +214,15 @@ export async function likeComment(browser, cookie, videoId, commentId) {
     await setCookies(page, cookie);
     await page.goto(`https://www.youtube.com/watch?v=${videoId}&lc=${commentId}`, {
       waitUntil: 'domcontentloaded',
-      timeout: 20000
+      timeout: 30000
     });
     
     // یافتن دکمه لایک
-    const likeButton = await page.waitForSelector(`[data-comment-id="${commentId}"] #like-button`, { timeout: 10000 });
-    const isLiked = await page.evaluate(btn => btn.getAttribute('aria-pressed') === 'true', likeButton);
+    const likeButton = await page.$(`[data-comment-id="${commentId}"] #like-button`);
+    if (!likeButton) throw new Error('Like button not found');
     
-    if (!isLiked) {
-      await likeButton.click();
-      await delay(3000);
-      
-      // تأیید لایک
-      const isLikedNow = await page.evaluate(btn => btn.getAttribute('aria-pressed') === 'true', likeButton);
-      if (!isLikedNow) throw new Error('Like action failed');
-    }
+    await likeButton.click();
+    await delay(3000);
     
     return true;
   } catch (error) {
@@ -234,4 +231,4 @@ export async function likeComment(browser, cookie, videoId, commentId) {
   } finally {
     await page.close();
   }
-}
+  }
