@@ -1,9 +1,15 @@
 {
   "name": "youtube-comment-system",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "dependencies": {
-    "@octokit/rest": "^20.0.0",
-    "node-fetch": "^3.3.2"
+    "puppeteer": "^21.6.0",
+    "jsdom": "^22.1.0",
+    "node-fetch": "^3.3.2",
+    "@octokit/rest": "^20.0.0"
+  },
+  "scripts": {
+    "start": "node commentRunner.browser.js",
+    "search": "node searchAndStoreVideos.js"
   }
 }
