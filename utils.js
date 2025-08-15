@@ -1,11 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 
-// تابع جدید اضافه شده
-export function getLangFromFilename(filename) {
-  return filename.split('.')[0];
-}
-
 export const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export function pickRandom(arr) {
@@ -13,14 +8,33 @@ export function pickRandom(arr) {
 }
 
 export function shuffle(arr) {
-  return [...arr].sort(() => Math.random() - 0.5);
+  const shuffled = [...arr];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
 }
 
-export function pickUnique(key, items, usedSet) {
-  const pool = items.filter(i => !usedSet.has(i));
-  const chosen = pool.length ? pickRandom(pool) : pickRandom(items);
-  usedSet.add(chosen);
-  return chosen;
+export function readTextFile(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`File not found: ${filePath}`);
+    }
+    
+    const content = fs.readFileSync(filePath, 'utf-8');
+    if (!content.trim()) {
+      throw new Error(`Empty file: ${filePath}`);
+    }
+    
+    return content
+      .split('\n')
+      .filter(line => line.trim())
+      .map(line => line.trim());
+  } catch (error) {
+    console.error(`Error reading ${filePath}:`, error.message);
+    return [];
+  }
 }
 
 export async function retryOperation(fn, operationName, retries = 3, delayMs = 2000) {
@@ -33,15 +47,4 @@ export async function retryOperation(fn, operationName, retries = 3, delayMs = 2
       else throw e;
     }
   }
-}
-
-export function validateFile(filePath) {
-  if (!fs.existsSync(filePath)) {
-    throw new Error(`File not found: ${filePath}`);
-  }
-  const content = fs.readFileSync(filePath, 'utf-8');
-  if (!content.trim()) {
-    throw new Error(`Empty file: ${filePath}`);
-  }
-  return content;
 }
