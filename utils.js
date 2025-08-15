@@ -2,7 +2,15 @@ import fs from 'fs';
 import path from 'path';
 
 // تابع جدید: ایجاد فایل اگر وجود ندارد
-export function ensureFileExists(filePath, defaultValue = '') {
+export function ensureFileExists(filePath, defaultValue = '', isDirectory = false) {
+  if (isDirectory) {
+    if (!fs.existsSync(filePath)) {
+      fs.mkdirSync(filePath, { recursive: true });
+      return true;
+    }
+    return false;
+  }
+
   const dir = path.dirname(filePath);
   
   // ایجاد پوشه اگر وجود ندارد
@@ -13,7 +21,6 @@ export function ensureFileExists(filePath, defaultValue = '') {
   // ایجاد فایل اگر وجود ندارد
   if (!fs.existsSync(filePath)) {
     fs.writeFileSync(filePath, defaultValue);
-    console.log(`📄 Created file: ${filePath}`);
     return true;
   }
   
@@ -33,7 +40,6 @@ export function readJSONFile(filePath, defaultValue = []) {
   }
 }
 
-// بقیه توابع (بدون تغییر)
 export const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export function pickRandom(arr) {
