@@ -1,15 +1,16 @@
 {
   "name": "youtube-comment-system",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "type": "module",
   "dependencies": {
-    "puppeteer": "^21.6.0",
+    "puppeteer": "^24.9.0",
     "jsdom": "^22.1.0",
     "node-fetch": "^3.3.2",
     "@octokit/rest": "^20.0.0"
   },
   "scripts": {
     "start": "node commentRunner.browser.js",
-    "search": "node searchAndStoreVideos.js"
+    "search": "node searchAndStoreVideos.js",
+    "fix-deps": "npm audit fix --force"
   }
 }
