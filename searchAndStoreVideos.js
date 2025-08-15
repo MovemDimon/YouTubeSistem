@@ -1,5 +1,3 @@
-// 📁 searchAndStoreVideos.js
-
 import fs from 'fs';
 import { ACCOUNTS } from './youtube_cookies.js';
 import { pickRandom, delay, retryOperation, validateFile } from './utils.js';
