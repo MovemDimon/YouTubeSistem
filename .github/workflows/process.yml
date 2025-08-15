@@ -23,15 +23,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         
-      # حذف کش خودکار وابستگی‌ها
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          # حذف گزینه cache برای جلوگیری از خطا
-        
-      - name: Generate Package Lock
-        run: npm install --package-lock-only
           
       - name: Install System Dependencies
         run: |
@@ -50,7 +45,7 @@ jobs:
             libxfixes3 \
             libxrandr2 \
             libgbm1 \
-            libasound2 \
+            libasound2t64  # تغییر این خطا - جایگزین libasound2
             libpangocairo-1.0-0
             
       - name: Install Node Dependencies
