@@ -6,7 +6,7 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45  # افزایش زمان به ۴۵ دقیقه
 
     steps:
       - uses: actions/checkout@v4
@@ -17,8 +17,12 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install
-
+        run: |
+          npm install
+          npm install puppeteer jsdom
+          sudo apt-get update
+          sudo apt-get install -y libgbm-dev wget
+          
       - name: Run comment runner
         env:
           COOKIE1: ${{ secrets.COOKIE1 }}
@@ -29,4 +33,4 @@ jobs:
           COOKIE6: ${{ secrets.COOKIE6 }}
           COOKIE7: ${{ secrets.COOKIE7 }}
           GH_CONTENTS_TOKEN: ${{ secrets.GH_CONTENTS_TOKEN }}
-        run: node commentRunner.js
+        run: node commentRunner.browser.js
