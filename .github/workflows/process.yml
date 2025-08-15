@@ -1,29 +1,41 @@
-name: Auto Comment Runner
+name: YouTube Auto Comment System
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 */6 * * *'  # اجرای هر 6 ساعت
 
 jobs:
-  run:
+  execute:
     runs-on: ubuntu-latest
-    timeout-minutes: 45  # افزایش زمان به ۴۵ دقیقه
+    timeout-minutes: 15
+    env:
+      NODE_OPTIONS: '--max_old_space_size=4096'
+      DISPLAY: ':99'
+      
+    services:
+      xvfb:
+        image: browserless/chrome
+        ports:
+          - 3000:3000
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: 20
-
-      - name: Install dependencies
-        run: |
-          npm install
-          npm install puppeteer jsdom
-          sudo apt-get update
-          sudo apt-get install -y libgbm-dev wget
+          cache: 'npm'
           
-      - name: Run comment runner
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgbm-dev libxshmfence-dev
+          npm install puppeteer-extra puppeteer-extra-plugin-stealth puppeteer-extra-plugin-recaptcha
+          
+      - name: Run System
         env:
           COOKIE1: ${{ secrets.COOKIE1 }}
           COOKIE2: ${{ secrets.COOKIE2 }}
@@ -32,5 +44,15 @@ jobs:
           COOKIE5: ${{ secrets.COOKIE5 }}
           COOKIE6: ${{ secrets.COOKIE6 }}
           COOKIE7: ${{ secrets.COOKIE7 }}
-          GH_CONTENTS_TOKEN: ${{ secrets.GH_CONTENTS_TOKEN }}
-        run: node commentRunner.browser.js
+          TWO_CAPTCHA_TOKEN: ${{ secrets.TWO_CAPTCHA_TOKEN }}
+        run: node main.js
+        
+      - name: Upload Debug Files
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: debug-screenshots
+          path: |
+            debug_*.png
+            debug_reply_*.png
+            debug_like_*.png
