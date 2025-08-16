@@ -139,7 +139,7 @@ async function waitForSelectors(page, selectors, timeout = 20000) {
   throw new Error('None of the selectors found: ' + selectors.join(', '));
 }
 
-// ارسال کامنت (نسخه کاملاً اصلاح شده)
+// ارسال کامنت (نسخه کاملاً اصلاح شده با سلکتورهای به‌روز)
 export async function postComment(browser, cookie, videoId, text) {
   const page = await browser.newPage();
   try {
@@ -193,16 +193,15 @@ export async function postComment(browser, cookie, videoId, text) {
     await commentBox.click({ delay: 100 + Math.random() * 200 });
     await delay(3000);
     
-    // تایپ کامنت با سلکتورهای جایگزین
-    const editableSelector = await waitForSelectors(page, [
-      '#contenteditable-root',
-      '.ytd-commentbox',
-      'div#contenteditable-root',
-      'ytd-commentbox div[contenteditable="true"]',
-      'ytd-comment-simplebox-renderer div[contenteditable="true"]',
-      'div.ytd-commentbox'
-    ], 30000);
+    // سلکتورهای به‌روز برای باکس نوشتن کامنت
+    const editableSelectors = [
+      '#simplebox-placeholder', // تمرکز روی باکس نوشتن کامنت (موثر و پایدار)
+      'yt-formatted-string#placeholder-area', // نسخه‌ی جدید placeholder
+      'div#contenteditable-root', // ورژن‌های قدیمی‌تر
+      'ytd-comment-simplebox-renderer[contenteditable]', // fallback
+    ];
     
+    const editableSelector = await waitForSelectors(page, editableSelectors, 30000);
     await page.click(editableSelector, { delay: 100 });
     await delay(1000);
     
@@ -264,12 +263,88 @@ export async function postComment(browser, cookie, videoId, text) {
   }
 }
 
-// ارسال ریپلای (بدون تغییر)
+// ارسال ریپلای
 export async function postReply(browser, cookie, videoId, commentId, text) {
-  // ... کد قبلی بدون تغییر
+  const page = await browser.newPage();
+  try {
+    await page.setExtraHTTPHeaders({ 
+      'accept-language': 'en-US,en;q=0.9',
+      'sec-ch-ua': '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"'
+    });
+    
+    await setCookies(page, cookie);
+    await page.goto(`https://www.youtube.com/watch?v=${videoId}&lc=${commentId}`, {
+      waitUntil: 'networkidle2',
+      timeout: 60000
+    });
+    
+    // بررسی CAPTCHA
+    await checkForCaptcha(page);
+    
+    // بازکردن بخش ریپلای
+    const replyButton = await page.waitForSelector(
+      `[data-comment-id="${commentId}"] #reply-button, [data-comment-id="${commentId}"] .ytd-button-renderer`,
+      { visible: true, timeout: 10000 }
+    );
+    await replyButton.click();
+    await delay(2000);
+    
+    // تایپ ریپلای
+    const replyBox = await page.waitForSelector(
+      '#contenteditable-root, .ytd-commentbox',
+      { visible: true, timeout: 10000 }
+    );
+    await replyBox.click();
+    await page.keyboard.type(text, {
+      delay: 50 + Math.random() * 100
+    });
+    await delay(2000);
+    
+    // ارسال ریپلای
+    const submitButton = await page.waitForSelector(
+      '#submit-button, ytd-button-renderer#submit-button',
+      { visible: true, timeout: 10000 }
+    );
+    await submitButton.click();
+    await delay(5000);
+    
+    return true;
+  } catch (error) {
+    await page.screenshot({ path: `debug_reply_${Date.now()}.png` });
+    throw error;
+  } finally {
+    await page.close();
+  }
 }
 
-// لایک کامنت (بدون تغییر)
+// لایک کامنت
 export async function likeComment(browser, cookie, videoId, commentId) {
-  // ... کد قبلی بدون تغییر
+  const page = await browser.newPage();
+  try {
+    await page.setExtraHTTPHeaders({ 
+      'accept-language': 'en-US,en;q=0.9',
+      'sec-ch-ua': '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"'
+    });
+    
+    await setCookies(page, cookie);
+    await page.goto(`https://www.youtube.com/watch?v=${videoId}&lc=${commentId}`, {
+      waitUntil: 'networkidle2',
+      timeout: 60000
+    });
+    
+    // یافتن دکمه لایک
+    const likeButton = await page.waitForSelector(
+      `[data-comment-id="${commentId}"] #like-button, [data-comment-id="${commentId}"] .ytd-toggle-button-renderer`,
+      { visible: true, timeout: 10000 }
+    );
+    await likeButton.click();
+    await delay(5000);
+    
+    return true;
+  } catch (error) {
+    await page.screenshot({ path: `debug_like_${Date.now()}.png` });
+    throw error;
+  } finally {
+    await page.close();
+  }
 }
