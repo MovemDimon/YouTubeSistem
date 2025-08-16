@@ -164,6 +164,166 @@ async function safeClick(page, selector, options = {}) {
   await delay(options.delay || 1000);
 }
 
+// تابع جدید برای دریافت شناسه کامنت از ترافیک شبکه
+async function getCommentIdFromNetwork(page) {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve(null), 15000);
+    
+    const handler = async (response) => {
+      try {
+        const url = response.url();
+        if (url.includes('/comment_service_ajax') || 
+            url.includes('/create_comment') || 
+            url.includes('/comment')) {
+          
+          const data = await response.json();
+          
+          // بررسی ساختارهای مختلف پاسخ
+          if (data?.actions) {
+            for (const action of data.actions) {
+              if (action?.createCommentAction?.contents?.commentThreadRenderer?.comment?.commentRenderer?.commentId) {
+                const commentId = action.createCommentAction.contents.commentThreadRenderer.comment.commentRenderer.commentId;
+                clearTimeout(timeout);
+                page.off('response', handler);
+                resolve(commentId);
+                return;
+              }
+            }
+          }
+          
+          // ساختار جایگزین
+          if (data?.response?.comment?.commentId) {
+            clearTimeout(timeout);
+            page.off('response', handler);
+            resolve(data.response.comment.commentId);
+            return;
+          }
+          
+          // ساختار جایگزین 2
+          if (data?.comment?.commentId) {
+            clearTimeout(timeout);
+            page.off('response', handler);
+            resolve(data.comment.commentId);
+            return;
+          }
+        }
+      } catch (e) {
+        // خطا در پردازش پاسخ
+      }
+    };
+    
+    page.on('response', handler);
+  });
+}
+
+// تابع جدید برای دریافت شناسه کامنت با روش‌های پیشرفته
+async function getCommentId(page, commentText) {
+  // روش 1: انتظار برای ظاهر شدن کامنت و دریافت مستقیم
+  try {
+    await page.waitForSelector('ytd-comment-thread-renderer', { timeout: 20000 });
+    
+    const commentId = await page.evaluate((text) => {
+      const maxCheckLength = 30;
+      const searchText = text.substring(0, Math.min(text.length, maxCheckLength));
+      
+      // جستجوی کامنت با متن مشابه
+      const comments = Array.from(document.querySelectorAll('ytd-comment-thread-renderer'));
+      const matchingComment = comments.find(comment => 
+        comment.textContent.includes(searchText)
+      );
+      
+      if (matchingComment) {
+        return matchingComment.getAttribute('data-comment-id');
+      }
+      
+      // استفاده از آخرین کامنت اگر پیدا نشد
+      if (comments.length > 0) {
+        return comments[0].getAttribute('data-comment-id');
+      }
+      
+      return null;
+    }, commentText);
+    
+    if (commentId) return commentId;
+  } catch (e) {
+    console.warn('⚠️ Method 1 for comment ID failed:', e.message);
+  }
+  
+  // روش 2: جستجو در ساختار صفحه
+  try {
+    const commentId = await page.evaluate(() => {
+      // جستجو در عناصر جدید
+      const newComments = document.querySelectorAll('ytd-comment-thread-renderer');
+      if (newComments.length > 0) return newComments[0].getAttribute('data-comment-id');
+      
+      // جستجو با استفاده از کلاس‌ها
+      const commentElements = document.querySelectorAll('[data-comment-id]');
+      if (commentElements.length > 0) {
+        return commentElements[commentElements.length - 1].getAttribute('data-comment-id');
+      }
+      
+      return null;
+    });
+    
+    if (commentId) return commentId;
+  } catch (e) {
+    console.warn('⚠️ Method 2 for comment ID failed:', e.message);
+  }
+  
+  // روش 3: جستجو در شبکه و پاسخ‌های AJAX
+  try {
+    const commentId = await getCommentIdFromNetwork(page);
+    if (commentId) return commentId;
+  } catch (e) {
+    console.warn('⚠️ Method 3 for comment ID failed:', e.message);
+  }
+  
+  // روش 4: جستجو در محتوای HTML
+  try {
+    const commentId = await page.evaluate(() => {
+      const match = document.body.innerHTML.match(/"commentId":"(.*?)"/);
+      return match ? match[1] : null;
+    });
+    
+    if (commentId) return commentId;
+  } catch (e) {
+    console.warn('⚠️ Method 4 for comment ID failed:', e.message);
+  }
+  
+  // روش 5: جستجو در Web Storage
+  try {
+    const commentId = await page.evaluate(() => {
+      // جستجو در localStorage
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key.toLowerCase().includes('commentid') || key.toLowerCase().includes('comment_id')) {
+          const value = localStorage.getItem(key);
+          if (value && value.length > 10) return value;
+        }
+      }
+      
+      // جستجو در sessionStorage
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        if (key.toLowerCase().includes('commentid') || key.toLowerCase().includes('comment_id')) {
+          const value = sessionStorage.getItem(key);
+          if (value && value.length > 10) return value;
+        }
+      }
+      
+      return null;
+    });
+    
+    if (commentId) return commentId;
+  } catch (e) {
+    console.warn('⚠️ Method 5 for comment ID failed:', e.message);
+  }
+  
+  // اگر همه روش‌ها شکست خوردند
+  await page.screenshot({ path: `comment_id_error_${Date.now()}.png` });
+  throw new Error('Failed to get comment ID after 5 attempts');
+}
+
 // ارسال کامنت (نسخه کاملاً اصلاح شده)
 export async function postComment(browser, cookie, videoId, text) {
   const page = await browser.newPage();
@@ -258,6 +418,9 @@ export async function postComment(browser, cookie, videoId, text) {
     // استفاده از کلیک ایمن برای دکمه ارسال
     await safeClick(page, submitButtonSelector, { delay: 2000 });
     
+    // انتظار برای ثبت کامنت
+    await delay(5000);
+    
     // دریافت شناسه کامنت با روش پیشرفته
     const commentId = await getCommentId(page, text);
     
@@ -268,126 +431,6 @@ export async function postComment(browser, cookie, videoId, text) {
   } finally {
     await page.close();
   }
-}
-
-// تابع جدید برای دریافت شناسه کامنت با روش‌های پیشرفته
-async function getCommentId(page, commentText) {
-  // روش 1: انتظار برای ظاهر شدن کامنت و دریافت مستقیم
-  try {
-    await page.waitForSelector('ytd-comment-thread-renderer', { timeout: 15000 });
-    
-    const commentId = await page.evaluate((text) => {
-      const maxCheckLength = 30;
-      const searchText = text.substring(0, Math.min(text.length, maxCheckLength));
-      
-      // جستجوی کامنت با متن مشابه
-      const comments = document.querySelectorAll('ytd-comment-thread-renderer');
-      for (const comment of comments) {
-        if (comment.textContent.includes(searchText)) {
-          return comment.getAttribute('data-comment-id');
-        }
-      }
-      
-      // استفاده از آخرین کامنت اگر پیدا نشد
-      if (comments.length > 0) {
-        return comments[0].getAttribute('data-comment-id');
-      }
-      
-      return null;
-    }, commentText);
-    
-    if (commentId) return commentId;
-  } catch (e) {
-    console.warn('⚠️ Method 1 for comment ID failed:', e.message);
-  }
-  
-  // روش 2: جستجو در ساختار صفحه
-  try {
-    const commentId = await page.evaluate(() => {
-      // جستجو در عناصر جدید
-      const newComments = document.querySelectorAll('ytd-comment-thread-renderer');
-      if (newComments.length > 0) return newComments[0].getAttribute('data-comment-id');
-      
-      // جستجو با استفاده از کلاس‌ها
-      const commentElements = document.querySelectorAll('[data-comment-id]');
-      if (commentElements.length > 0) {
-        return commentElements[commentElements.length - 1].getAttribute('data-comment-id');
-      }
-      
-      return null;
-    });
-    
-    if (commentId) return commentId;
-  } catch (e) {
-    console.warn('⚠️ Method 2 for comment ID failed:', e.message);
-  }
-  
-  // روش 3: جستجو در شبکه و پاسخ‌های AJAX
-  try {
-    const commentId = await getCommentIdFromNetwork(page);
-    if (commentId) return commentId;
-  } catch (e) {
-    console.warn('⚠️ Method 3 for comment ID failed:', e.message);
-  }
-  
-  // روش 4: جستجو در محتوای HTML
-  try {
-    const commentId = await page.evaluate(() => {
-      const match = document.body.innerHTML.match(/"commentId":"(.*?)"/);
-      return match ? match[1] : null;
-    });
-    
-    if (commentId) return commentId;
-  } catch (e) {
-    console.warn('⚠️ Method 4 for comment ID failed:', e.message);
-  }
-  
-  // روش 5: جستجو در لاگ‌های کنسول
-  try {
-    const commentId = await page.evaluate(() => {
-      for (const log of window.console.logs) {
-        const match = log.match(/commentId=(\w+)/);
-        if (match) return match[1];
-      }
-      return null;
-    });
-    
-    if (commentId) return commentId;
-  } catch (e) {
-    console.warn('⚠️ Method 5 for comment ID failed:', e.message);
-  }
-  
-  // اگر همه روش‌ها شکست خوردند
-  await page.screenshot({ path: `comment_id_error_${Date.now()}.png` });
-  throw new Error('Failed to get comment ID after 5 attempts');
-}
-
-// تابع جدید برای دریافت شناسه کامنت از ترافیک شبکه
-async function getCommentIdFromNetwork(page) {
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => resolve(null), 10000);
-    
-    page.on('response', async (response) => {
-      if (response.url().includes('/comment_service_ajax')) {
-        try {
-          const data = await response.json();
-          if (data && data.actions) {
-            for (const action of data.actions) {
-              if (action.createCommentAction) {
-                const commentId = action.createCommentAction?.contents?.commentThreadRenderer?.comment?.commentRenderer?.commentId;
-                if (commentId) {
-                  clearTimeout(timeout);
-                  resolve(commentId);
-                }
-              }
-            }
-          }
-        } catch (e) {
-          // خطا در پردازش پاسخ
-        }
-      }
-    });
-  });
 }
 
 // ارسال ریپلای
@@ -485,4 +528,4 @@ export async function likeComment(browser, cookie, videoId, commentId) {
   } finally {
     await page.close();
   }
-  }
+}
