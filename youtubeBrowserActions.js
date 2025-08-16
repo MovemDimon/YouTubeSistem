@@ -1,16 +1,9 @@
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-import RecaptchaPlugin from 'puppeteer-extra-plugin-recaptcha';
 import { delay } from './utils.js';
 
 // فعال‌سازی پلاگین‌های امنیتی
 puppeteer.use(StealthPlugin());
-puppeteer.use(
-  RecaptchaPlugin({
-    provider: { id: '2captcha', token: process.env.TWO_CAPTCHA_TOKEN },
-    visualFeedback: true
-  })
-);
 
 // تنظیمات جدید برای محیط GitHub Actions
 const BROWSER_ARGS = [
@@ -146,7 +139,6 @@ export async function postComment(browser, cookie, videoId, text) {
     
     return commentId;
   } catch (error) {
-    // ذخیره اسکرین‌شات برای دیباگ
     await page.screenshot({ path: `debug_${Date.now()}.png` });
     throw error;
   } finally {
@@ -231,4 +223,4 @@ export async function likeComment(browser, cookie, videoId, commentId) {
   } finally {
     await page.close();
   }
-  }
+}
