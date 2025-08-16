@@ -71,14 +71,25 @@ export function readTextFile(filePath) {
   }
 }
 
-export async function retryOperation(fn, operationName, retries = 3, delayMs = 2000) {
+export async function retryOperation(fn, operationName, retries = 5, delayMs = 5000) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       return await fn();
     } catch (e) {
       console.warn(`⚠️ Retry ${attempt}/${retries} for ${operationName}:`, e.message);
-      if (attempt < retries) await delay(delayMs * attempt);
-      else throw e;
+      
+      // افزایش تصادفی زمان تأخیر
+      const exponentialDelay = delayMs * Math.pow(2, attempt - 1);
+      const jitter = Math.floor(Math.random() * 3000);
+      const actualDelay = Math.min(exponentialDelay + jitter, 60000);
+      
+      if (attempt < retries) {
+        console.log(`⌛ Waiting ${actualDelay}ms before next attempt...`);
+        await delay(actualDelay);
+      } else {
+        console.error(`❌ All retries failed for ${operationName}`);
+        throw e;
+      }
     }
   }
 }
