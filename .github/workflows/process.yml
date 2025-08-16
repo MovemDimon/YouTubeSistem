@@ -8,10 +8,13 @@ on:
 jobs:
   execute:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       NODE_OPTIONS: '--max_old_space_size=4096'
       DISPLAY: ':99'
+      DBUS_SESSION_BUS_ADDRESS: '/dev/null'
+      NO_AT_BRIDGE: 1
+      DISABLE_DBUS: 1
       
     services:
       xvfb:
@@ -34,6 +37,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
           
       - name: Install System Dependencies
         run: |
@@ -52,7 +56,7 @@ jobs:
             libxfixes3 \
             libxrandr2 \
             libgbm1 \
-            libasound2t64 \
+            libasound2 \
             libpangocairo-1.0-0 \
             libpango-1.0-0 \
             libpangoft2-1.0-0 \
@@ -62,11 +66,19 @@ jobs:
             libx11-xcb1 \
             libxtst6 \
             x11-utils \
-            xdg-utils
+            xdg-utils \
+            dbus-x11 \
+            xvfb
             
+      - name: Start Xvfb
+        run: |
+          Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX &
+          sleep 3
+          
       - name: Install Node Dependencies
         run: |
           npm install
+          npx playwright install-deps
           
       - name: Run System
         env:
@@ -77,8 +89,9 @@ jobs:
           COOKIE5: ${{ secrets.COOKIE5 }}
           COOKIE6: ${{ secrets.COOKIE6 }}
           COOKIE7: ${{ secrets.COOKIE7 }}
-        run: node main.js
-        
+        run: |
+          node main.js
+          
       - name: Upload Debug Files
         if: failure()
         uses: actions/upload-artifact@v4
@@ -88,27 +101,32 @@ jobs:
             debug_*.png
             debug_reply_*.png
             debug_like_*.png
+            captcha_*.png
           retention-days: 1
           
       - name: Commit Video Changes
         if: always()
         run: |
-          # نادیده گرفتن تغییرات ناخواسته
-          git reset HEAD -- .
-          git checkout -- .
-          git clean -fdx
+          # تنظیم اطلاعات کاربر
+          git config --global user.email "github-actions@example.com"
+          git config --global user.name "GitHub Action"
           
           # فقط تغییرات فایل‌های ویدیو را اضافه کنید
           git add data/videos/
           
-          # اگر تغییری وجود دارد، کامیت و پوش کنید
-          if [ -n "$(git status --porcelain)" ]; then
-            git config --global user.email "github-actions@example.com"
-            git config --global user.name "GitHub Action"
-            git commit -m "Update video data from GitHub Action"
-            git push origin HEAD:${{ github.ref }}
+          # بررسی وجود تغییرات
+          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+            git commit -m "📥 Update video data from GitHub Action"
+            
+            # تنظیم URL ریموت با توکن
+            git remote set-url origin https://x-access-token:${{ secrets.GH_CONTENTS_TOKEN }}@github.com/$GITHUB_REPOSITORY
+            
+            # انجام push
+            git push origin HEAD:$GITHUB_REF
+            echo "✅ Changes committed and pushed"
           else
-            echo "No changes to commit"
+            echo "ℹ️ No video changes to commit"
           fi
         env:
-          GH_CONTENTS_TOKEN: ${{ secrets.GH_CONTENTS_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF: ${{ github.ref }}
