@@ -27,8 +27,8 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # دریافت کامل تاریخچه برای کامیت
-          token: ${{ secrets.GITHUB_TOKEN }} # افزودن توکن دسترسی
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
           
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -93,12 +93,17 @@ jobs:
           retention-days: 1
           
       - name: Commit and Push Changes
-        if: always() # حتی در صورت خطا هم اجرا شود
+        if: always()
         run: |
-          git config --global user.email "action@github.com"
+          # تنظیم هویت
+          git config --global user.email "github-actions@example.com"
           git config --global user.name "GitHub Action"
-          git add data/videos/*.json
-          git commit -m "Update video data from GitHub Action" || echo "No changes to commit"
-          git push origin HEAD:${{ github.ref }}
-        env:
-          GH_CONTENTS_TOKEN: ${{ secrets.GH_CONTENTS_TOKEN }}
+          
+          # افزودن تغییرات
+          git add data/videos/
+          
+          # کامیت تغییرات
+          git diff-index --quiet HEAD || git commit -m "Update video data"
+          
+          # پوش تغییرات با احراز هویت صحیح
+          git push https://${{ github.actor }}:${{ secrets.GH_CONTENTS_TOKEN }}@github.com/${{ github.repository }}.git HEAD:${{ github.ref }}
