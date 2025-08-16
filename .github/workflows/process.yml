@@ -43,7 +43,6 @@ jobs:
             libxshmfence-dev \
             libnss3 \
             libatk1.0-0 \
-            libpangocairo-1.0-0 \
             libatk-bridge2.0-0 \
             libcups2 \
             libdrm2 \
@@ -54,8 +53,16 @@ jobs:
             libxrandr2 \
             libgbm1 \
             libasound2t64 \
-            libpangocairo-1.0-0t64
-            # حذف وابستگی‌های اضافی
+            libpangocairo-1.0-0 \
+            libpango-1.0-0 \
+            libpangoft2-1.0-0 \
+            fonts-liberation \
+            libappindicator3-1 \
+            libjpeg-dev \
+            libx11-xcb1 \
+            libxtst6 \
+            x11-utils \
+            xdg-utils
             
       - name: Install Node Dependencies
         run: |
