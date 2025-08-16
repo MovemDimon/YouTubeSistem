@@ -1,10 +1,8 @@
-import { initBrowser } from './youtubeBrowserActions.js';
+import { initBrowser, postComment, postReply, likeComment } from './youtubeBrowserActions.js';
 import { searchAndStoreVideos } from './searchAndStoreVideos.js';
 import { ACCOUNTS } from './youtube_cookies.js';
-import { postComment, postReply, likeComment } from './youtubeBrowserActions.js';
 import { delay, pickRandom, shuffle, readTextFile, retryOperation, ensureFileExists } from './utils.js';
 import fs from 'fs';
-import path from 'path';
 
 // تنظیمات سیستم
 const MIN_VIDEOS_PER_LANG = 10;
@@ -51,7 +49,7 @@ async function initializeDataFiles() {
     
     // ایجاد فایل ریپلای اگر وجود ندارد
     const replyCreated = ensureFileExists(replyFile);
-    if (replyCreated || (fs.existsSync(replyFile) && fs.readFileSync(replyFile, 'utf-8').trim() === '') {
+    if (replyCreated || (fs.existsSync(replyFile) && fs.readFileSync(replyFile, 'utf-8').trim() === '')) {
       fs.writeFileSync(replyFile, `Sample reply in ${lang}\nAnother reply in ${lang}`);
     }
   });
