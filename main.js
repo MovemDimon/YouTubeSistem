@@ -2,6 +2,7 @@ import { initBrowser, postComment, postReply, likeComment } from './youtubeBrows
 import { searchAndStoreVideos } from './searchAndStoreVideos.js';
 import { ACCOUNTS } from './youtube_cookies.js';
 import { delay, pickRandom, shuffle, readTextFile, retryOperation, ensureFileExists } from './utils.js';
+import { setupHeadlessEnvironment } from './headlessHelper.js';
 import fs from 'fs';
 
 // تنظیمات سیستم
@@ -9,9 +10,9 @@ const MIN_VIDEOS_PER_LANG = 10;
 const LANGS = ['en', 'fa', 'ru', 'es', 'hi'];
 const COMMENT_DISTRIBUTION = ['en', 'en', 'en', 'ru', 'es', 'hi', 'fa'];
 const DATA_PATH = './data';
-const MAX_RETRIES = 3;
-const MIN_DELAY = 3000; // 3 ثانیه
-const MAX_DELAY = 10000; // 10 ثانیه
+const MAX_RETRIES = 5;
+const MIN_DELAY = 5000; // 5 ثانیه
+const MAX_DELAY = 15000; // 15 ثانیه
 
 // تابع مقداردهی اولیه فایل‌ها
 async function initializeDataFiles() {
@@ -139,12 +140,9 @@ async function main() {
     browserInstances = [];
     for (const account of activeAccounts) {
       try {
+        const browserConfig = setupHeadlessEnvironment();
         const browser = await retryOperation(
-          () => initBrowser({ 
-            headless: true,
-            stealth: true,
-            slowMo: 100 // کاهش سرعت برای پایداری بیشتر
-          }),
+          () => initBrowser(browserConfig),
           "initBrowser",
           3 // 3 بار تلاش مجدد
         );
@@ -154,11 +152,18 @@ async function main() {
         console.error(`❌ Failed to initialize browser for account ${account.name}:`, error.message);
         // ایجاد مرورگر جایگزین با تنظیمات ساده‌تر
         console.log('🔄 Trying simplified browser setup...');
-        const fallbackBrowser = await initBrowser({
-          headless: true,
-          args: ['--no-sandbox', '--disable-setuid-sandbox'],
-          protocolTimeout: 120000 // تایم‌اوت 120 ثانیه
-        });
+        const fallbackConfig = {
+          headless: "new",
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--single-process',
+            '--no-zygote'
+          ],
+          protocolTimeout: 120000
+        };
+        const fallbackBrowser = await initBrowser(fallbackConfig);
         browserInstances.push(fallbackBrowser);
       }
     }
