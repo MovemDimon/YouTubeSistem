@@ -77,28 +77,6 @@ async function setCookies(page, cookie) {
   await delay(2000);
 }
 
-// بررسی فعال بودن کامنت‌ها
-async function checkCommentsEnabled(page) {
-  const disabledSelectors = [
-    '#message.ytd-comments-header-renderer',
-    '.ytd-comments-header-renderer > .disabled-comments',
-    'yt-formatted-string[contains(text(), "disabled")]'
-  ];
-  
-  for (const selector of disabledSelectors) {
-    const element = await page.$(selector);
-    if (element) {
-      const message = await page.evaluate(el => el.textContent, element);
-      if (message.toLowerCase().includes('disabled') || 
-          message.toLowerCase().includes('off')) {
-        throw new Error('Comments are disabled for this video');
-      }
-    }
-  }
-  
-  return true;
-}
-
 // تابع جدید برای تشخیص CAPTCHA
 async function checkForCaptcha(page) {
   const captchaSelectors = [
@@ -113,6 +91,45 @@ async function checkForCaptcha(page) {
       throw new Error('CAPTCHA detected - manual intervention required');
     }
   }
+}
+
+// بررسی فعال بودن کامنت‌ها (نسخه اصلاح شده)
+async function checkCommentsEnabled(page) {
+  const disabledSelectors = [
+    '#message.ytd-comments-header-renderer',
+    '.ytd-comments-header-renderer > .disabled-comments',
+    'yt-formatted-string.comment-dialog-renderer-message'
+  ];
+  
+  // کلمات کلیدی برای تشخیص غیرفعال بودن کامنت‌ها
+  const disabledKeywords = [
+    'disabled', 'off', 'غیرفعال', 'отключен', 'desactivado', 'अक्षम'
+  ];
+  
+  for (const selector of disabledSelectors) {
+    const element = await page.$(selector);
+    if (element) {
+      const message = await page.evaluate(el => el.textContent, element);
+      if (disabledKeywords.some(keyword => message.toLowerCase().includes(keyword))) {
+        throw new Error('Comments are disabled for this video');
+      }
+    }
+  }
+  
+  return true;
+}
+
+// تابع کمکی برای انتظار برای سلکتورها
+async function waitForSelectors(page, selectors, timeout = 15000) {
+  for (const selector of selectors) {
+    try {
+      await page.waitForSelector(selector, { timeout, visible: true });
+      return selector;
+    } catch (e) {
+      // ادامه به سلکتور بعدی
+    }
+  }
+  throw new Error('None of the selectors found: ' + selectors.join(', '));
 }
 
 // ارسال کامنت
@@ -131,62 +148,63 @@ export async function postComment(browser, cookie, videoId, text) {
     
     // بازکردن ویدیو
     await page.goto(`https://www.youtube.com/watch?v=${videoId}`, {
-      waitUntil: 'domcontentloaded',
-      timeout: 60000
+      waitUntil: 'networkidle2',
+      timeout: 120000
     });
     
     // بررسی CAPTCHA
     await checkForCaptcha(page);
     
-    // بررسی خطاهای یوتیوب
-    const errorPage = await page.$('#error-page');
-    if (errorPage) {
-      const errorCode = await page.$eval('.error-code', el => el.textContent);
-      throw new Error(`YouTube error: ${errorCode}`);
-    }
+    // تأخیر تصادفی
+    await delay(4000 + Math.random() * 4000);
     
     // اسکرول به بخش کامنت‌ها
-    await page.evaluate(() => window.scrollBy(0, 1500));
-    await delay(3000);
+    await page.evaluate(() => {
+      const commentSection = document.getElementById('comments');
+      if (commentSection) {
+        commentSection.scrollIntoView({behavior: 'smooth'});
+      }
+    });
+    await delay(2000);
     
     // بررسی فعال بودن کامنت‌ها
     await checkCommentsEnabled(page);
     
     // فعال‌سازی باکس کامنت (نسخه بهبودیافته)
-    const commentBox = await page.waitForSelector(
-      '#placeholder-area, #comments-container, ytd-commentbox',
-      { visible: true, timeout: 15000 }
-    );
+    const commentBoxSelector = await waitForSelectors(page, [
+      '#placeholder-area',
+      '#comments-container',
+      'ytd-commentbox',
+      'ytd-comment-simplebox-renderer'
+    ]);
+    const commentBox = await page.$(commentBoxSelector);
     await commentBox.click();
     await delay(2000);
     
-    // تایپ کامنت (افزودن بررسی اضافه)
-    const editable = await page.waitForSelector(
-      '#contenteditable-root, .ytd-commentbox',
-      { visible: true, timeout: 10000 }
-    );
-    await editable.click();
+    // تایپ کامنت
+    const editableSelector = await waitForSelectors(page, [
+      '#contenteditable-root',
+      '.ytd-commentbox'
+    ]);
+    await page.click(editableSelector);
     await page.keyboard.type(text, { 
       delay: 50 + Math.random() * 100
     });
     await delay(2000);
     
-    // ارسال کامنت (روش جایگزین)
-    const submitButtons = await page.$$(
-      'ytd-button-renderer#submit-button, #submit-button, button[aria-label="Comment"], button[aria-label="نظر دادن"], button[aria-label="Комментировать"]'
-    );
-
-    if (submitButtons.length > 0) {
-      await submitButtons[0].click();
-    } else {
-      // روش جایگزین با استفاده از کلیدهای صفحه‌کلید
-      await page.keyboard.press('Enter');
-      await delay(1000);
-      await page.keyboard.down('Control');
-      await page.keyboard.press('Enter');
-      await page.keyboard.up('Control');
-    }
+    // ارسال کامنت
+    const submitSelectors = [
+      'ytd-button-renderer#submit-button',
+      '#submit-button',
+      'button[aria-label="Comment"]',
+      'button[aria-label="نظر دادن"]',
+      'button[aria-label="Комментировать"]',
+      'button[aria-label="Comentar"]',
+      'button[aria-label="टिप्पणी करें"]'
+    ];
     
+    const submitButtonSelector = await waitForSelectors(page, submitSelectors, 10000);
+    await page.click(submitButtonSelector);
     await delay(5000);
     
     // دریافت شناسه کامنت
@@ -217,7 +235,7 @@ export async function postReply(browser, cookie, videoId, commentId, text) {
     
     await setCookies(page, cookie);
     await page.goto(`https://www.youtube.com/watch?v=${videoId}&lc=${commentId}`, {
-      waitUntil: 'domcontentloaded',
+      waitUntil: 'networkidle2',
       timeout: 60000
     });
     
@@ -271,7 +289,7 @@ export async function likeComment(browser, cookie, videoId, commentId) {
     
     await setCookies(page, cookie);
     await page.goto(`https://www.youtube.com/watch?v=${videoId}&lc=${commentId}`, {
-      waitUntil: 'domcontentloaded',
+      waitUntil: 'networkidle2',
       timeout: 60000
     });
     
@@ -290,4 +308,4 @@ export async function likeComment(browser, cookie, videoId, commentId) {
   } finally {
     await page.close();
   }
-}
+  }
