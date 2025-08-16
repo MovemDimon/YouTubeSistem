@@ -19,6 +19,7 @@ async function searchYouTube(keyword, cookie) {
       'Cookie': cookie,
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
     },
+    timeout: 30000
   });
 
   const html = await response.text();
@@ -99,7 +100,7 @@ export async function searchAndStoreVideos() {
         }
         
         // تأخیر انسانی بین جستجوها
-        await delay(2000 + Math.random() * 3000);
+        await delay(5000 + Math.random() * 5000);
       } catch (error) {
         console.error(`❌ Search failed for "${keyword}":`, error.message);
       }
