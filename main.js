@@ -2,7 +2,7 @@ import { initBrowser } from './youtubeBrowserActions.js';
 import { searchAndStoreVideos } from './searchAndStoreVideos.js';
 import { ACCOUNTS } from './youtube_cookies.js';
 import { postComment, postReply, likeComment } from './youtubeBrowserActions.js';
-import { delay, pickRandom, shuffle, readTextFile, retryOperation, ensureFileExists, readJSONFile } from './utils.js';
+import { delay, pickRandom, shuffle, readTextFile, retryOperation, ensureFileExists } from './utils.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -12,8 +12,8 @@ const LANGS = ['en', 'fa', 'ru', 'es', 'hi'];
 const COMMENT_DISTRIBUTION = ['en', 'en', 'en', 'ru', 'es', 'hi', 'fa'];
 const DATA_PATH = './data';
 const MAX_RETRIES = 3;
-const MIN_DELAY = 3000;
-const MAX_DELAY = 10000;
+const MIN_DELAY = 3000; // 3 ثانیه
+const MAX_DELAY = 10000; // 10 ثانیه
 
 // تابع مقداردهی اولیه فایل‌ها
 async function initializeDataFiles() {
@@ -43,16 +43,16 @@ async function initializeDataFiles() {
     const commentFile = `${DATA_PATH}/comments/${lang}.txt`;
     const replyFile = `${DATA_PATH}/replies/${lang}.txt`;
     
-    if (ensureFileExists(commentFile) {
-      if (fs.readFileSync(commentFile, 'utf-8').trim() === '') {
-        fs.writeFileSync(commentFile, `کامنت نمونه به زبان ${lang}\nکامنت دیگر به زبان ${lang}`);
-      }
+    // ایجاد فایل کامنت اگر وجود ندارد
+    const commentCreated = ensureFileExists(commentFile);
+    if (commentCreated || (fs.existsSync(commentFile) && fs.readFileSync(commentFile, 'utf-8').trim() === '') {
+      fs.writeFileSync(commentFile, `Sample comment in ${lang}\nAnother comment in ${lang}`);
     }
     
-    if (ensureFileExists(replyFile)) {
-      if (fs.readFileSync(replyFile, 'utf-8').trim() === '') {
-        fs.writeFileSync(replyFile, `ریپلای نمونه به زبان ${lang}\nریپلای دیگر به زبان ${lang}`);
-      }
+    // ایجاد فایل ریپلای اگر وجود ندارد
+    const replyCreated = ensureFileExists(replyFile);
+    if (replyCreated || (fs.existsSync(replyFile) && fs.readFileSync(replyFile, 'utf-8').trim() === '') {
+      fs.writeFileSync(replyFile, `Sample reply in ${lang}\nAnother reply in ${lang}`);
     }
   });
 }
@@ -115,8 +115,8 @@ async function main() {
       const commentFile = `${DATA_PATH}/comments/${lang}.txt`;
       const replyFile = `${DATA_PATH}/replies/${lang}.txt`;
       
-      ensureFileExists(commentFile, `کامنت نمونه به زبان ${lang}`);
-      ensureFileExists(replyFile, `ریپلای نمونه به زبان ${lang}`);
+      ensureFileExists(commentFile, `Sample comment in ${lang}`);
+      ensureFileExists(replyFile, `Sample reply in ${lang}`);
       
       comments[lang] = readTextFile(commentFile);
       replies[lang] = readTextFile(replyFile);
