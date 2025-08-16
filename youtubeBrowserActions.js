@@ -139,7 +139,32 @@ async function waitForSelectors(page, selectors, timeout = 20000) {
   throw new Error('None of the selectors found: ' + selectors.join(', '));
 }
 
-// ارسال کامنت (نسخه کاملاً اصلاح شده با سلکتورهای به‌روز)
+// تابع جدید برای کلیک ایمن روی عناصر
+async function safeClick(page, selector, options = {}) {
+  // اسکرول به عنصر
+  await page.evaluate(selector => {
+    const element = document.querySelector(selector);
+    if (element) {
+      element.scrollIntoView({behavior: 'smooth', block: 'center'});
+    }
+  }, selector);
+  
+  await delay(1000);
+  
+  // کلیک با استفاده از JavaScript
+  await page.evaluate(selector => {
+    const element = document.querySelector(selector);
+    if (element) {
+      element.click();
+    } else {
+      throw new Error('Element not found for safeClick');
+    }
+  }, selector);
+  
+  await delay(options.delay || 1000);
+}
+
+// ارسال کامنت (نسخه کاملاً اصلاح شده)
 export async function postComment(browser, cookie, videoId, text) {
   const page = await browser.newPage();
   try {
@@ -169,7 +194,7 @@ export async function postComment(browser, cookie, videoId, text) {
     await page.evaluate(() => {
       const commentSection = document.querySelector('ytd-comments');
       if (commentSection) {
-        commentSection.scrollIntoView({behavior: 'smooth'});
+        commentSection.scrollIntoView({behavior: 'smooth', block: 'start'});
       } else {
         window.scrollBy(0, 1500);
       }
@@ -189,9 +214,8 @@ export async function postComment(browser, cookie, videoId, text) {
       'ytd-commentbox#commentbox'
     ], 25000);
     
-    const commentBox = await page.$(commentBoxSelector);
-    await commentBox.click({ delay: 100 + Math.random() * 200 });
-    await delay(3000);
+    // استفاده از کلیک ایمن
+    await safeClick(page, commentBoxSelector, { delay: 2000 });
     
     // سلکتورهای به‌روز برای باکس نوشتن کامنت
     const editableSelectors = [
@@ -202,8 +226,9 @@ export async function postComment(browser, cookie, videoId, text) {
     ];
     
     const editableSelector = await waitForSelectors(page, editableSelectors, 30000);
-    await page.click(editableSelector, { delay: 100 });
-    await delay(1000);
+    
+    // استفاده از کلیک ایمن برای باکس متن
+    await safeClick(page, editableSelector, { delay: 1000 });
     
     // تایپ با رفتار انسانی
     for (const char of text) {
@@ -229,8 +254,9 @@ export async function postComment(browser, cookie, videoId, text) {
     ];
     
     const submitButtonSelector = await waitForSelectors(page, submitSelectors, 15000);
-    await page.click(submitButtonSelector, { delay: 200 });
-    await delay(5000);
+    
+    // استفاده از کلیک ایمن برای دکمه ارسال
+    await safeClick(page, submitButtonSelector, { delay: 2000 });
     
     // دریافت شناسه کامنت با روش جایگزین
     const commentId = await page.evaluate(() => {
@@ -282,31 +308,41 @@ export async function postReply(browser, cookie, videoId, commentId, text) {
     await checkForCaptcha(page);
     
     // بازکردن بخش ریپلای
-    const replyButton = await page.waitForSelector(
-      `[data-comment-id="${commentId}"] #reply-button, [data-comment-id="${commentId}"] .ytd-button-renderer`,
-      { visible: true, timeout: 10000 }
-    );
-    await replyButton.click();
-    await delay(2000);
+    const replyButtonSelector = await waitForSelectors(page, [
+      `[data-comment-id="${commentId}"] #reply-button`,
+      `[data-comment-id="${commentId}"] .ytd-button-renderer`,
+      `#reply-button-${commentId}`
+    ], 15000);
+    
+    await safeClick(page, replyButtonSelector, { delay: 2000 });
     
     // تایپ ریپلای
-    const replyBox = await page.waitForSelector(
-      '#contenteditable-root, .ytd-commentbox',
-      { visible: true, timeout: 10000 }
-    );
-    await replyBox.click();
-    await page.keyboard.type(text, {
-      delay: 50 + Math.random() * 100
-    });
+    const replyBoxSelector = await waitForSelectors(page, [
+      '#contenteditable-root',
+      '.ytd-commentbox',
+      'div#contenteditable-root.reply'
+    ], 15000);
+    
+    await safeClick(page, replyBoxSelector, { delay: 1000 });
+    
+    // تایپ با رفتار انسانی
+    for (const char of text) {
+      await page.keyboard.type(char, { 
+        delay: 50 + Math.random() * 100 
+      });
+      if (Math.random() > 0.8) await delay(100 + Math.random() * 300);
+    }
     await delay(2000);
     
     // ارسال ریپلای
-    const submitButton = await page.waitForSelector(
-      '#submit-button, ytd-button-renderer#submit-button',
-      { visible: true, timeout: 10000 }
-    );
-    await submitButton.click();
-    await delay(5000);
+    const submitButtonSelector = await waitForSelectors(page, [
+      '#submit-button',
+      'ytd-button-renderer#submit-button',
+      'button[aria-label="Reply"]',
+      'button[aria-label="ارسال"]'
+    ], 15000);
+    
+    await safeClick(page, submitButtonSelector, { delay: 2000 });
     
     return true;
   } catch (error) {
@@ -333,12 +369,13 @@ export async function likeComment(browser, cookie, videoId, commentId) {
     });
     
     // یافتن دکمه لایک
-    const likeButton = await page.waitForSelector(
-      `[data-comment-id="${commentId}"] #like-button, [data-comment-id="${commentId}"] .ytd-toggle-button-renderer`,
-      { visible: true, timeout: 10000 }
-    );
-    await likeButton.click();
-    await delay(5000);
+    const likeButtonSelector = await waitForSelectors(page, [
+      `[data-comment-id="${commentId}"] #like-button`,
+      `[data-comment-id="${commentId}"] .ytd-toggle-button-renderer`,
+      `#like-button-${commentId}`
+    ], 15000);
+    
+    await safeClick(page, likeButtonSelector, { delay: 2000 });
     
     return true;
   } catch (error) {
