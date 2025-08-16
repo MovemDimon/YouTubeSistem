@@ -258,27 +258,8 @@ export async function postComment(browser, cookie, videoId, text) {
     // استفاده از کلیک ایمن برای دکمه ارسال
     await safeClick(page, submitButtonSelector, { delay: 2000 });
     
-    // دریافت شناسه کامنت با روش جایگزین
-    const commentId = await page.evaluate(() => {
-      // روش 1: استفاده از آخرین کامنت
-      const comments = document.querySelectorAll('ytd-comment-thread-renderer');
-      if (comments.length > 0) return comments[comments.length - 1].getAttribute('data-comment-id');
-      
-      // روش 2: استفاده از عناصر واقع در صفحه
-      const commentElement = document.querySelector('ytd-comment-renderer[data-comment-id]');
-      if (commentElement) return commentElement.getAttribute('data-comment-id');
-      
-      // روش 3: جستجو در محتوای صفحه
-      const match = document.body.innerHTML.match(/"commentId":"(.*?)"/);
-      if (match && match[1]) return match[1];
-      
-      return null;
-    });
-    
-    if (!commentId) {
-      await page.screenshot({ path: `comment_id_error_${Date.now()}.png` });
-      throw new Error('Failed to get comment ID');
-    }
+    // دریافت شناسه کامنت با روش پیشرفته
+    const commentId = await getCommentId(page, text);
     
     return commentId;
   } catch (error) {
@@ -287,6 +268,126 @@ export async function postComment(browser, cookie, videoId, text) {
   } finally {
     await page.close();
   }
+}
+
+// تابع جدید برای دریافت شناسه کامنت با روش‌های پیشرفته
+async function getCommentId(page, commentText) {
+  // روش 1: انتظار برای ظاهر شدن کامنت و دریافت مستقیم
+  try {
+    await page.waitForSelector('ytd-comment-thread-renderer', { timeout: 15000 });
+    
+    const commentId = await page.evaluate((text) => {
+      const maxCheckLength = 30;
+      const searchText = text.substring(0, Math.min(text.length, maxCheckLength));
+      
+      // جستجوی کامنت با متن مشابه
+      const comments = document.querySelectorAll('ytd-comment-thread-renderer');
+      for (const comment of comments) {
+        if (comment.textContent.includes(searchText)) {
+          return comment.getAttribute('data-comment-id');
+        }
+      }
+      
+      // استفاده از آخرین کامنت اگر پیدا نشد
+      if (comments.length > 0) {
+        return comments[0].getAttribute('data-comment-id');
+      }
+      
+      return null;
+    }, commentText);
+    
+    if (commentId) return commentId;
+  } catch (e) {
+    console.warn('⚠️ Method 1 for comment ID failed:', e.message);
+  }
+  
+  // روش 2: جستجو در ساختار صفحه
+  try {
+    const commentId = await page.evaluate(() => {
+      // جستجو در عناصر جدید
+      const newComments = document.querySelectorAll('ytd-comment-thread-renderer');
+      if (newComments.length > 0) return newComments[0].getAttribute('data-comment-id');
+      
+      // جستجو با استفاده از کلاس‌ها
+      const commentElements = document.querySelectorAll('[data-comment-id]');
+      if (commentElements.length > 0) {
+        return commentElements[commentElements.length - 1].getAttribute('data-comment-id');
+      }
+      
+      return null;
+    });
+    
+    if (commentId) return commentId;
+  } catch (e) {
+    console.warn('⚠️ Method 2 for comment ID failed:', e.message);
+  }
+  
+  // روش 3: جستجو در شبکه و پاسخ‌های AJAX
+  try {
+    const commentId = await getCommentIdFromNetwork(page);
+    if (commentId) return commentId;
+  } catch (e) {
+    console.warn('⚠️ Method 3 for comment ID failed:', e.message);
+  }
+  
+  // روش 4: جستجو در محتوای HTML
+  try {
+    const commentId = await page.evaluate(() => {
+      const match = document.body.innerHTML.match(/"commentId":"(.*?)"/);
+      return match ? match[1] : null;
+    });
+    
+    if (commentId) return commentId;
+  } catch (e) {
+    console.warn('⚠️ Method 4 for comment ID failed:', e.message);
+  }
+  
+  // روش 5: جستجو در لاگ‌های کنسول
+  try {
+    const commentId = await page.evaluate(() => {
+      for (const log of window.console.logs) {
+        const match = log.match(/commentId=(\w+)/);
+        if (match) return match[1];
+      }
+      return null;
+    });
+    
+    if (commentId) return commentId;
+  } catch (e) {
+    console.warn('⚠️ Method 5 for comment ID failed:', e.message);
+  }
+  
+  // اگر همه روش‌ها شکست خوردند
+  await page.screenshot({ path: `comment_id_error_${Date.now()}.png` });
+  throw new Error('Failed to get comment ID after 5 attempts');
+}
+
+// تابع جدید برای دریافت شناسه کامنت از ترافیک شبکه
+async function getCommentIdFromNetwork(page) {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve(null), 10000);
+    
+    page.on('response', async (response) => {
+      if (response.url().includes('/comment_service_ajax')) {
+        try {
+          const data = await response.json();
+          if (data && data.actions) {
+            for (const action of data.actions) {
+              if (action.createCommentAction) {
+                const commentId = action.createCommentAction?.contents?.commentThreadRenderer?.comment?.commentRenderer?.commentId;
+                if (commentId) {
+                  clearTimeout(timeout);
+                  resolve(commentId);
+                }
+              }
+            }
+          }
+        } catch (e) {
+          // خطا در پردازش پاسخ
+        }
+      }
+    });
+  });
 }
 
 // ارسال ریپلای
@@ -384,4 +485,4 @@ export async function likeComment(browser, cookie, videoId, commentId) {
   } finally {
     await page.close();
   }
-}
+  }
