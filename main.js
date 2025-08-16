@@ -45,7 +45,7 @@ async function initializeDataFiles() {
     
     // ایجاد فایل کامنت اگر وجود ندارد
     const commentCreated = ensureFileExists(commentFile);
-    if (commentCreated || (fs.existsSync(commentFile) && fs.readFileSync(commentFile, 'utf-8').trim() === '') {
+    if (commentCreated || (fs.existsSync(commentFile) && fs.readFileSync(commentFile, 'utf-8').trim() === '')) {
       fs.writeFileSync(commentFile, `Sample comment in ${lang}\nAnother comment in ${lang}`);
     }
     
