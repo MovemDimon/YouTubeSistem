@@ -37,7 +37,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
+          # حذف خط cache: 'npm' برای رفع خطا
           
       - name: Install System Dependencies
         run: |
@@ -77,7 +77,7 @@ jobs:
           
       - name: Install Node Dependencies
         run: |
-          npm install
+          npm install --no-package-lock  # جلوگیری از ایجاد package-lock.json
           npx playwright install-deps
           
       - name: Run System
