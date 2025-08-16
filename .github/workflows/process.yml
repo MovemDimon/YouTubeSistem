@@ -43,6 +43,7 @@ jobs:
             libxshmfence-dev \
             libnss3 \
             libatk1.0-0 \
+            libpangocairo-1.0-0 \
             libatk-bridge2.0-0 \
             libcups2 \
             libdrm2 \
@@ -53,21 +54,12 @@ jobs:
             libxrandr2 \
             libgbm1 \
             libasound2t64 \
-            libpangocairo-1.0-0 \
-            libpango-1.0-0 \
-            libpangoft2-1.0-0 \
-            fonts-liberation \
-            libappindicator3-1 \
-            libjpeg-dev \
-            libx11-xcb1 \
-            libxtst6 \
-            x11-utils \
-            xdg-utils
+            libpangocairo-1.0-0t64
+            # حذف وابستگی‌های اضافی
             
       - name: Install Node Dependencies
         run: |
-          npm install puppeteer@24.9.0 jsdom@22.1.0 node-fetch@3.3.2 @octokit/rest@20.0.0
-          npm install puppeteer-extra puppeteer-extra-plugin-stealth puppeteer-extra-plugin-recaptcha
+          npm install
           
       - name: Run System
         env:
@@ -92,18 +84,25 @@ jobs:
             debug_like_*.png
           retention-days: 1
           
-      - name: Commit and Push Changes
+      - name: Commit Video Changes
         if: always()
         run: |
-          # تنظیم هویت
-          git config --global user.email "github-actions@example.com"
-          git config --global user.name "GitHub Action"
+          # نادیده گرفتن تغییرات ناخواسته
+          git reset HEAD -- .
+          git checkout -- .
+          git clean -fdx
           
-          # افزودن تغییرات
+          # فقط تغییرات فایل‌های ویدیو را اضافه کنید
           git add data/videos/
           
-          # کامیت تغییرات
-          git diff-index --quiet HEAD || git commit -m "Update video data"
-          
-          # پوش تغییرات با احراز هویت صحیح
-          git push https://${{ github.actor }}:${{ secrets.GH_CONTENTS_TOKEN }}@github.com/${{ github.repository }}.git HEAD:${{ github.ref }}
+          # اگر تغییری وجود دارد، کامیت و پوش کنید
+          if [ -n "$(git status --porcelain)" ]; then
+            git config --global user.email "github-actions@example.com"
+            git config --global user.name "GitHub Action"
+            git commit -m "Update video data from GitHub Action"
+            git push origin HEAD:${{ github.ref }}
+          else
+            echo "No changes to commit"
+          fi
+        env:
+          GH_CONTENTS_TOKEN: ${{ secrets.GH_CONTENTS_TOKEN }}
