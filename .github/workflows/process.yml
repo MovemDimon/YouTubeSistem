@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_CONTENTS_TOKEN }}
           
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -77,7 +77,6 @@ jobs:
           COOKIE5: ${{ secrets.COOKIE5 }}
           COOKIE6: ${{ secrets.COOKIE6 }}
           COOKIE7: ${{ secrets.COOKIE7 }}
-          TWO_CAPTCHA_TOKEN: ${{ secrets.TWO_CAPTCHA_TOKEN }}
         run: node main.js
         
       - name: Upload Debug Files
