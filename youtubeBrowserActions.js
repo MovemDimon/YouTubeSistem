@@ -290,7 +290,7 @@ async function robustCommentPosting(page, submitButton, commentText) {
     try {
       // تشخیص موانع قبل از ارسال
       const preBlockers = await detectBlockers(page);
-      if (Object.values(preBlockers).some(v => v === true || (Array.isArray(v) && v.length > 0)) {
+      if (Object.values(preBlockers).some(v => v === true || (Array.isArray(v) && v.length > 0))) {
         attemptLog.blockers = preBlockers;
         logStep('pre_blockers_detected', 'warning', preBlockers);
         await captureDebug(page, `pre_blockers_attempt_${attempt}`);
