@@ -41,7 +41,7 @@ export async function initBrowser(opts = {}) {
     args: [...BROWSER_ARGS, ...(opts.args || [])],
     defaultViewport: { width: 1366, height: 768 },
     ignoreHTTPSErrors: true,
-    protocolTimeout: opts.protocolTimeout || 180000, // افزایش زمان انتظار
+    protocolTimeout: opts.protocolTimeout || 180000,
     dumpio: true,
     slowMo: opts.slowMo || 0
   };
@@ -94,26 +94,59 @@ async function checkForCaptcha(page) {
   }
 }
 
-// بررسی فعال بودن کامنت‌ها
+// بررسی فعال بودن کامنت‌ها (نسخه اصلاح شده)
 async function checkCommentsEnabled(page) {
   const disabledSelectors = [
     '#message.ytd-comments-header-renderer',
     '.ytd-comments-header-renderer > .disabled-comments',
     'yt-formatted-string.comment-dialog-renderer-message',
-    'yt-formatted-string[contains(text(), "comments are turned off")]'
+    'div#message',
+    'ytd-message-renderer'
   ];
   
   const disabledKeywords = [
-    'disabled', 'off', 'غیرفعال', 'отключен', 'desactivado', 'अक्षम', '关闭评论'
+    'disabled', 'off', 'غیرفعال', 'отключен', 'desactivado', 'अक्षम', '关闭评论',
+    'comments are turned off', 'تم إيقاف التعليقات', 'コメントはオフです',
+    'commenting has been disabled', 'comments turned off'
   ];
   
+  // بررسی با CSS Selectors
   for (const selector of disabledSelectors) {
-    const element = await page.$(selector);
-    if (element) {
-      const message = await page.evaluate(el => el.textContent, element);
-      if (disabledKeywords.some(keyword => message.toLowerCase().includes(keyword))) {
-        throw new Error('Comments are disabled for this video');
+    try {
+      const element = await page.$(selector);
+      if (element) {
+        const message = await page.evaluate(el => el.textContent || '', element);
+        if (message && disabledKeywords.some(keyword => 
+            message.toLowerCase().includes(keyword.toLowerCase()))) {
+          throw new Error('Comments are disabled for this video');
+        }
       }
+    } catch (e) {
+      console.warn('Error in CSS selector check:', e.message);
+    }
+  }
+  
+  // بررسی با XPath برای حالات خاص
+  const xpathExpressions = [
+    "//*[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'comments are turned off')]",
+    "//*[contains(., 'comments disabled')]",
+    "//*[contains(., 'تعليقات معطلة')]", // عربی
+    "//*[contains(., 'コメントはオフ')]" // ژاپنی
+  ];
+  
+  for (const xpath of xpathExpressions) {
+    try {
+      const elements = await page.$x(xpath);
+      if (elements.length > 0) {
+        const isVisible = await elements[0].evaluate(el => 
+          el.offsetWidth > 0 && el.offsetHeight > 0
+        );
+        if (isVisible) {
+          throw new Error('Comments are disabled (XPath detected)');
+        }
+      }
+    } catch (e) {
+      console.warn('XPath evaluation warning:', e.message);
     }
   }
   
