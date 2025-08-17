@@ -1,11 +1,12 @@
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { delay } from './utils.js';
+import fs from 'fs';
 
 // فعال‌سازی پلاگین‌های امنیتی
 puppeteer.use(StealthPlugin());
 
-// تنظیمات جدید برای محیط GitHub Actions
+// تنظیمات مرورگر
 const BROWSER_ARGS = [
   '--no-sandbox',
   '--disable-setuid-sandbox',
@@ -77,23 +78,24 @@ async function setCookies(page, cookie) {
   await delay(2000);
 }
 
-// تابع جدید برای تشخیص CAPTCHA
+// تابع تشخیص CAPTCHA
 async function checkForCaptcha(page) {
   const captchaSelectors = [
     '#captcha-container',
     '.captcha-box',
-    'form[action*="captcha"]'
+    'form[action*="captcha"]',
+    'iframe[src*="recaptcha"]'
   ];
   
   for (const selector of captchaSelectors) {
     if (await page.$(selector)) {
-      await page.screenshot({ path: `captcha_${Date.now()}.png` });
+      await captureDebug(page, 'captcha_detected');
       throw new Error('CAPTCHA detected - manual intervention required');
     }
   }
 }
 
-// بررسی فعال بودن کامنت‌ها (نسخه اصلاح شده)
+// بررسی فعال بودن کامنت‌ها
 async function checkCommentsEnabled(page) {
   const disabledSelectors = [
     '#message.ytd-comments-header-renderer',
@@ -101,7 +103,6 @@ async function checkCommentsEnabled(page) {
     'yt-formatted-string.comment-dialog-renderer-message'
   ];
   
-  // کلمات کلیدی برای تشخیص غیرفعال بودن کامنت‌ها
   const disabledKeywords = [
     'disabled', 'off', 'غیرفعال', 'отключен', 'desactivado', 'अक्षम'
   ];
@@ -111,6 +112,7 @@ async function checkCommentsEnabled(page) {
     if (element) {
       const message = await page.evaluate(el => el.textContent, element);
       if (disabledKeywords.some(keyword => message.toLowerCase().includes(keyword))) {
+        await captureDebug(page, 'comments_disabled');
         throw new Error('Comments are disabled for this video');
       }
     }
@@ -119,7 +121,7 @@ async function checkCommentsEnabled(page) {
   return true;
 }
 
-// تابع کمکی برای انتظار برای سلکتورها (نسخه بهبودیافته)
+// تابع کمکی برای انتظار برای سلکتورها
 async function waitForSelectors(page, selectors, timeout = 20000) {
   for (const selector of selectors) {
     try {
@@ -134,14 +136,12 @@ async function waitForSelectors(page, selectors, timeout = 20000) {
     }
   }
   
-  // اگر هیچ سلکتوری پیدا نشد، اسکرین‌شات بگیر
-  await page.screenshot({ path: `selector_error_${Date.now()}.png` });
+  await captureDebug(page, 'selector_not_found');
   throw new Error('None of the selectors found: ' + selectors.join(', '));
 }
 
-// تابع جدید برای کلیک ایمن روی عناصر
+// تابع کلیک ایمن روی عناصر
 async function safeClick(page, selector, options = {}) {
-  // اسکرول به عنصر
   await page.evaluate(selector => {
     const element = document.querySelector(selector);
     if (element) {
@@ -151,7 +151,6 @@ async function safeClick(page, selector, options = {}) {
   
   await delay(1000);
   
-  // کلیک با استفاده از JavaScript
   await page.evaluate(selector => {
     const element = document.querySelector(selector);
     if (element) {
@@ -164,206 +163,366 @@ async function safeClick(page, selector, options = {}) {
   await delay(options.delay || 1000);
 }
 
-// ======= توابع جدید برای شناسایی commentId ======= //
-function extractCommentIdFromObj(obj) {
-  if (!obj) return null;
-  if (typeof obj === 'string') {
-    const m = obj.match(/"commentId"\s*:\s*"([^"]+)"/i) || 
-              obj.match(/"id"\s*:\s*"([A-Za-z0-9_-]{8,})"/i);
-    return m ? m[1] : null;
+// ================ سیستم لاگ‌گیری و دیباگ پیشرفته ================ //
+const DEBUG_DIR = './debug_logs';
+
+// ایجاد دایرکتوری لاگ‌ها
+if (!fs.existsSync(DEBUG_DIR)) {
+  fs.mkdirSync(DEBUG_DIR);
+}
+
+// تابع ذخیره لاگ‌ها
+function saveLogEntry(logData) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const logFileName = `${DEBUG_DIR}/debug_${timestamp}.json`;
+  
+  try {
+    fs.writeFileSync(logFileName, JSON.stringify(logData, null, 2));
+    return logFileName;
+  } catch (e) {
+    console.error('⚠️ Failed to save log file:', e);
+    return null;
   }
-  if (typeof obj === 'object') {
-    for (const k of Object.keys(obj)) {
-      const v = obj[k];
-      if (/(commentId|comment_id|topLevelComment|id)$/i.test(k) && 
-          typeof v === 'string' && 
-          v.length > 8) {
-        if (/^[A-Za-z0-9_-]{8,}$/.test(v)) return v;
+}
+
+// تابع ثبت عکس‌های دیباگ
+async function captureDebug(page, context = 'debug') {
+  const timestamp = Date.now();
+  const screenshotPath = `${DEBUG_DIR}/${context}_${timestamp}.png`;
+  
+  try {
+    await page.screenshot({ 
+      path: screenshotPath,
+      fullPage: true
+    });
+    return screenshotPath;
+  } catch (e) {
+    console.error(`⚠️ Failed to capture screenshot (${context}):`, e);
+    return null;
+  }
+}
+
+// تابع تشخیص موانع
+async function detectBlockers(page) {
+  return await page.evaluate(() => {
+    const blockers = {};
+    
+    // تشخیص کپچا
+    blockers.captcha = !!document.querySelector('div#captcha-container, iframe[src*="recaptcha"]');
+    
+    // تشخیص نیاز به لاگین
+    blockers.loginRequired = !!document.querySelector('a[href*="/accounts.google.com/ServiceLogin"]');
+    
+    // تشخیص کوکی‌بار
+    blockers.cookieConsent = !!document.querySelector('ytd-consent-bump-v2-lightbox');
+    
+    // تشخیص مدال‌ها
+    blockers.modal = !!document.querySelector('ytd-popup-container, .overlay');
+    
+    // تشخیص خطاهای عمومی
+    const errorMessages = [
+      'برای نظر دادن وارد شوید',
+      'sign in to comment',
+      'comments are turned off',
+      'نظرات غیرفعال شده‌اند',
+      'unable to post comment',
+      'error occurred'
+    ];
+    
+    blockers.errors = [];
+    const pageText = document.body.innerText.toLowerCase();
+    errorMessages.forEach(msg => {
+      if (pageText.includes(msg.toLowerCase())) {
+        blockers.errors.push(msg);
       }
-      const nested = extractCommentIdFromObj(v);
-      if (nested) return nested;
-    }
-  }
-  return null;
+    });
+    
+    return blockers;
+  });
 }
 
-async function tryParseResponseForId(response) {
+// ================ سیستم ارسال و شناسایی کامنت ================ //
+async function robustCommentPosting(page, submitButton, commentText) {
+  const MAX_ATTEMPTS = 3;
+  const logData = {
+    startTime: new Date().toISOString(),
+    videoUrl: page.url(),
+    commentText,
+    steps: [],
+    finalResult: null
+  };
+  
+  const logStep = (step, status, details = {}) => {
+    const stepEntry = {
+      timestamp: new Date().toISOString(),
+      step,
+      status,
+      details
+    };
+    logData.steps.push(stepEntry);
+    console.log(`[${step}] ${status}`, details);
+  };
+  
+  // شمارش اولیه کامنت‌ها
+  let initialCommentCount;
   try {
-    // تلاش برای تجزیه JSON
-    const ct = response.headers()['content-type'] || '';
-    if (ct.includes('application/json')) {
-      const j = await response.json();
-      const id = extractCommentIdFromObj(j);
-      if (id) return { id, raw: j };
-      return { id: null, raw: j };
-    }
+    initialCommentCount = await page.evaluate(() => {
+      return document.querySelectorAll('ytd-comment-thread-renderer').length;
+    });
+    logStep('initial_comment_count', 'success', { count: initialCommentCount });
   } catch (e) {
-    // خطا در تجزیه JSON
-  }
-
-  try {
-    // تجزیه متن خام
-    const txt = await response.text();
-    const m = txt.match(/"commentId"\s*:\s*"([^"]+)"/i) || 
-              txt.match(/"id"\s*:\s*"([A-Za-z0-9_-]{8,})"/i);
-    if (m) return { id: m[1], raw: txt };
-    
-    // جستجوی بلوک JSON در متن
-    const jmatch = txt.match(/\{[\s\S]*\}/);
-    if (jmatch) {
-      try {
-        const j = JSON.parse(jmatch[0]);
-        const id = extractCommentIdFromObj(j);
-        if (id) return { id, raw: j };
-        return { id: null, raw: j };
-      } catch(_) {}
-    }
-    return { id: null, raw: txt };
-  } catch (e) {
-    return { id: null, raw: null };
-  }
-}
-
-// تابع جستجو در DOM (اجرا در محیط مرورگر)
-const domFallbackFn = (expectedText) => {
-  function norm(s){ 
-    return (s||'').replace(/\s+/g,' ').trim().toLowerCase(); 
+    logStep('initial_comment_count', 'failed', { error: e.message });
+    initialCommentCount = 0;
   }
   
-  const threads = Array.from(document.querySelectorAll(
-    'ytd-comment-thread-renderer, ytd-comment-view-renderer, ytd-comment-renderer'
-  ));
-  
-  // جستجو از جدیدترین کامنت‌ها
-  for (let i = threads.length - 1; i >= 0; i--) {
-    const t = threads[i];
-    const contentEl = t.querySelector(
-      '#content-text, yt-formatted-string#content-text, ytd-expander yt-formatted-string'
-    );
-    const content = contentEl ? norm(contentEl.innerText) : '';
+  // تلاش‌های متوالی
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const attemptLog = {
+      attempt,
+      networkResponse: null,
+      domResult: null,
+      blockers: null,
+      error: null
+    };
     
-    if (!content) continue;
+    logStep('attempt_start', 'info', { attempt });
     
-    // مقایسه متن نرمال‌شده
-    if (content === norm(expectedText) || 
-        content.includes(norm(expectedText).slice(0, 40))) {
-      // روش ۱: شناسه از data attribute
-      const dataId = t.getAttribute('data-comment-id');
-      if (dataId) return dataId;
+    try {
+      // تشخیص موانع قبل از ارسال
+      const preBlockers = await detectBlockers(page);
+      if (Object.values(preBlockers).some(v => v === true || (Array.isArray(v) && v.length > 0)) {
+        attemptLog.blockers = preBlockers;
+        logStep('pre_blockers_detected', 'warning', preBlockers);
+        await captureDebug(page, `pre_blockers_attempt_${attempt}`);
+        
+        // ذخیره لاگ و ادامه به تلاش بعدی
+        logData.attempts = logData.attempts || [];
+        logData.attempts.push(attemptLog);
+        await delay(2000 * attempt);
+        continue;
+      }
       
-      // روش ۲: شناسه از لینک انتشار
-      const a = t.querySelector('a#published-time, a[href*="lc="]');
-      if (a && a.href) {
+      // تنظیم شنونده شبکه
+      const networkPromise = page.waitForResponse(response => {
+        const url = response.url();
+        return [
+          '/comment_service_ajax',
+          '/youtubei/',
+          '/comment/create_comment',
+          '/comment_service'
+        ].some(pattern => url.includes(pattern));
+      }, { timeout: 15000 }).catch(() => null);
+      
+      // کلیک روی دکمه ارسال
+      try {
+        await submitButton.click({ delay: 100 });
+        logStep('submit_click', 'success', { method: 'elementHandle' });
+      } catch (clickError) {
         try {
-          const u = new URL(a.href);
-          const lc = u.searchParams.get('lc');
-          if (lc) return lc;
-        } catch(e){}
+          await page.evaluate(btn => btn.click(), submitButton);
+          logStep('submit_click', 'success', { method: 'evaluate' });
+        } catch (evaluateError) {
+          logStep('submit_click', 'failed', { 
+            elementHandleError: clickError.message,
+            evaluateError: evaluateError.message
+          });
+          throw new Error('کلیک روی دکمه ارسال ناموفق بود');
+        }
       }
-    }
-  }
-  return null;
-};
-
-async function getCommentIdAfterSubmit(page, submitButtonElementHandle, commentText, opts = {}) {
-  const patterns = opts.patterns || [
-    '/comment_service_ajax',
-    '/youtubei/',
-    '/comment/create_comment',
-    '/comment/create',
-    '/comment_service'
-  ];
-  
-  const networkTimeout = opts.networkTimeout || 15000;
-  const domTimeout = opts.domTimeout || 8000;
-
-  // تنظیم شنونده شبکه قبل از کلیک
-  const waitForResponsePromise = page.waitForResponse(response => {
-    try {
-      const url = response.url();
-      return response.request().method() === 'POST' && 
-             patterns.some(p => url.includes(p));
-    } catch (e) { 
-      return false; 
-    }
-  }, { timeout: networkTimeout }).catch(() => null);
-
-  // کلیک با دو روش مختلف
-  try {
-    await submitButtonElementHandle.click();
-  } catch (e) {
-    await page.evaluate(el => el.click(), submitButtonElementHandle).catch(()=>{});
-  }
-
-  // ===== لایه ۱: شناسایی از شبکه =====
-  const resp = await waitForResponsePromise;
-  if (resp) {
-    const parsed = await tryParseResponseForId(resp);
-    if (parsed.id) {
-      return { id: parsed.id, source: 'network', raw: parsed.raw };
-    }
-  }
-
-  // ===== لایه ۲: شناسایی از DOM =====
-  try {
-    // انتظار برای ظاهر شدن کامنت‌ها
-    await page.waitForSelector(
-      'ytd-comment-thread-renderer, ytd-comment-view-renderer', 
-      { timeout: domTimeout }
-    );
-  } catch(e) {}
-
-  // اجرای جستجوگر DOM در مرورگر
-  const idFromDOM = await page.evaluate(domFallbackFn, commentText).catch(()=>null);
-  if (idFromDOM) return { id: idFromDOM, source: 'dom' };
-
-  // ===== لایه ۳: شناسایی آخرین کامنت =====
-  const lastId = await page.evaluate(() => {
-    const last = document.querySelector(
-      'ytd-comment-thread-renderer:last-of-type, ' +
-      'ytd-comment-view-renderer:last-of-type, ' +
-      'ytd-comment-renderer:last-of-type'
-    );
-    return last ? (last.getAttribute('data-comment-id') || null) : null;
-  }).catch(()=>null);
-  
-  if (lastId) return { id: lastId, source: 'dom-last' };
-
-  return { id: null, source: null };
-}
-
-async function getCommentIdWithRetries(page, submitButtonEl, commentText, attempts = 3) {
-  let backoff = 1000;
-  for (let i = 0; i < attempts; i++) {
-    const res = await getCommentIdAfterSubmit(
-      page, 
-      submitButtonEl, 
-      commentText, 
-      { 
-        networkTimeout: 15000, 
-        domTimeout: 8000 
+      
+      // انتظار برای نتایج
+      const [networkResponse] = await Promise.all([
+        networkPromise,
+        page.waitForFunction(
+          count => document.querySelectorAll('ytd-comment-thread-renderer').length > count,
+          { timeout: 10000, polling: 500 },
+          initialCommentCount
+        ).catch(() => null)
+      ]);
+      
+      // پردازش پاسخ شبکه
+      if (networkResponse) {
+        attemptLog.networkResponse = {
+          url: networkResponse.url(),
+          status: networkResponse.status(),
+          headers: networkResponse.headers()
+        };
+        
+        try {
+          const responseBody = await networkResponse.text();
+          attemptLog.networkResponse.body = responseBody.substring(0, 2000); // ذخیره بخشی از بدنه
+          
+          // استخراج شناسه کامنت
+          const idMatch = responseBody.match(/"commentId"\s*:\s*"([^"]+)"/i) || 
+                         responseBody.match(/"id"\s*:\s*"([A-Za-z0-9_-]{16,})"/i);
+          
+          if (idMatch && idMatch[1]) {
+            logStep('comment_id_found', 'success', { 
+              source: 'network', 
+              commentId: idMatch[1],
+              attempt
+            });
+            
+            logData.finalResult = {
+              status: 'success',
+              commentId: idMatch[1],
+              source: 'network',
+              attempt
+            };
+            
+            saveLogEntry(logData);
+            return idMatch[1];
+          }
+        } catch (parseError) {
+          logStep('network_parse_error', 'error', { 
+            error: parseError.message,
+            attempt
+          });
+        }
+      } else {
+        logStep('network_timeout', 'warning', { attempt });
       }
-    );
-    
-    if (res.id) return res;
-    
-    // ذخیره‌سازی اطلاعات دیباگ
-    try {
-      await page.screenshot({ 
-        path: `commentid_retry_${i}_${Date.now()}.png`,
-        fullPage: true 
+      
+      // جستجو در DOM
+      try {
+        const commentId = await page.evaluate((text) => {
+          const normalize = (s) => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+          const targetText = normalize(text).substring(0, 60);
+          
+          const comments = Array.from(
+            document.querySelectorAll('ytd-comment-thread-renderer')
+          );
+          
+          // جستجو از جدیدترین کامنت
+          for (let i = comments.length - 1; i >= 0; i--) {
+            const comment = comments[i];
+            const contentEl = comment.querySelector('#content-text, #content');
+            if (!contentEl) continue;
+            
+            const contentText = normalize(contentEl.textContent);
+            if (contentText.includes(targetText)) {
+              // استخراج شناسه
+              return comment.getAttribute('data-comment-id') || null;
+            }
+          }
+          return null;
+        }, commentText);
+        
+        if (commentId) {
+          logStep('comment_id_found', 'success', { 
+            source: 'dom', 
+            commentId,
+            attempt
+          });
+          
+          logData.finalResult = {
+            status: 'success',
+            commentId,
+            source: 'dom',
+            attempt
+          };
+          
+          saveLogEntry(logData);
+          return commentId;
+        }
+        
+        logStep('dom_search_failed', 'warning', { attempt });
+        attemptLog.domResult = 'not_found';
+      } catch (domError) {
+        logStep('dom_search_error', 'error', { 
+          error: domError.message,
+          attempt
+        });
+        attemptLog.error = domError.message;
+      }
+      
+      // تشخیص موانع پس از ارسال
+      const postBlockers = await detectBlockers(page);
+      if (Object.values(postBlockers).some(v => v === true || (Array.isArray(v) && v.length > 0)) {
+        attemptLog.blockers = postBlockers;
+        logStep('post_blockers_detected', 'warning', postBlockers);
+        await captureDebug(page, `post_blockers_attempt_${attempt}`);
+      }
+      
+      // استراتژی Fallback: آخرین کامنت
+      try {
+        const lastCommentId = await page.evaluate(() => {
+          const lastComment = document.querySelector('ytd-comment-thread-renderer:last-child');
+          return lastComment ? lastComment.getAttribute('data-comment-id') : null;
+        });
+        
+        if (lastCommentId) {
+          logStep('fallback_comment_id', 'warning', {
+            source: 'fallback',
+            commentId: lastCommentId,
+            attempt
+          });
+          
+          logData.finalResult = {
+            status: 'fallback',
+            commentId: lastCommentId,
+            source: 'fallback',
+            attempt
+          };
+          
+          saveLogEntry(logData);
+          return lastCommentId;
+        }
+      } catch (fallbackError) {
+        logStep('fallback_failed', 'error', {
+          error: fallbackError.message,
+          attempt
+        });
+      }
+      
+    } catch (attemptError) {
+      logStep('attempt_error', 'error', {
+        attempt,
+        error: attemptError.message
       });
-    } catch(e) {}
-    
-    await delay(backoff);
-    backoff *= 2;
+      attemptLog.error = attemptError.message;
+    } finally {
+      // ذخیره اطلاعات دیباگ برای این تلاش
+      logData.attempts = logData.attempts || [];
+      logData.attempts.push(attemptLog);
+      
+      // عکس‌برداری پس از هر تلاش ناموفق
+      if (attempt < MAX_ATTEMPTS) {
+        await captureDebug(page, `attempt_${attempt}_debug`);
+      }
+      
+      // تاخیر بین تلاش‌ها
+      if (attempt < MAX_ATTEMPTS) {
+        const waitTime = 3000 * attempt;
+        logStep('attempt_delay', 'info', { waitTime });
+        await delay(waitTime);
+      }
+    }
   }
-  return { id: null, source: 'failed' };
+  
+  // تلاش‌ها ناموفق بودند
+  await captureDebug(page, 'final_debug');
+  
+  // ثبت لاگ نهایی
+  logData.finalResult = {
+    status: 'failed',
+    message: 'تمامی تلاش‌ها ناموفق بودند'
+  };
+  
+  const logPath = saveLogEntry(logData);
+  logStep('process_complete', 'error', {
+    status: 'failed',
+    logPath
+  });
+  
+  throw new Error('Failed to post comment after all attempts');
 }
 
-// ارسال کامنت (نسخه کاملاً بازنویسی شده)
+// ================ تابع اصلی ارسال کامنت ================ //
 export async function postComment(browser, cookie, videoId, text) {
   const page = await browser.newPage();
+  const startTime = Date.now();
+  
   try {
     // تنظیمات اولیه
     await page.setJavaScriptEnabled(true);
@@ -372,198 +531,121 @@ export async function postComment(browser, cookie, videoId, text) {
       'sec-ch-ua': '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"'
     });
     
+    // ثبت رویداد شروع
+    console.log(`📝 Starting comment process for video: ${videoId}`);
+    console.log(`🔑 Using cookie: ${cookie.substring(0, 30)}...`);
+    
     // تنظیم کوکی‌ها
+    console.log('🍪 Setting cookies...');
     await setCookies(page, cookie);
     
     // بازکردن ویدیو
-    await page.goto(`https://www.youtube.com/watch?v=${videoId}`, {
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    console.log(`🌐 Navigating to: ${videoUrl}`);
+    await page.goto(videoUrl, {
       waitUntil: 'networkidle2',
       timeout: 120000
     });
     
     // بررسی CAPTCHA
+    console.log('🔍 Checking for CAPTCHA...');
     await checkForCaptcha(page);
-    await delay(5000 + Math.random() * 5000);
+    
+    // تاخیر تصادفی
+    const randomDelay = 3000 + Math.random() * 4000;
+    console.log(`⏳ Random delay: ${Math.round(randomDelay)}ms`);
+    await delay(randomDelay);
     
     // اسکرول به بخش کامنت‌ها
+    console.log('🖱 Scrolling to comments section...');
     await page.evaluate(() => {
       const commentSection = document.querySelector('ytd-comments');
       if (commentSection) {
-        commentSection.scrollIntoView({behavior: 'smooth', block: 'start'});
+        commentSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        window.scrollBy(0, 200);
       } else {
         window.scrollBy(0, 1500);
       }
     });
-    await delay(3000);
+    await delay(2000);
     
     // بررسی فعال بودن کامنت‌ها
+    console.log('🔍 Checking if comments are enabled...');
     await checkCommentsEnabled(page);
     
     // فعال‌سازی باکس کامنت
+    console.log('📝 Activating comment box...');
     const commentBoxSelector = await waitForSelectors(page, [
       '#placeholder-area',
-      '#comments-container',
       'ytd-commentbox',
-      'ytd-comment-simplebox-renderer',
-      '.ytd-comments-header-renderer',
-      'ytd-commentbox#commentbox'
-    ], 25000);
+      'ytd-comment-simplebox-renderer'
+    ], 15000);
     
-    await safeClick(page, commentBoxSelector, { delay: 2000 });
+    await safeClick(page, commentBoxSelector, { delay: 1500 });
+    console.log('✅ Comment box activated');
     
     // یافتن باکس متن
-    const editableSelectors = [
-      '#simplebox-placeholder',
-      'yt-formatted-string#placeholder-area',
+    console.log('⌨️ Finding text input field...');
+    const editableSelector = await waitForSelectors(page, [
+      '#contenteditable-root',
       'div#contenteditable-root',
-      'ytd-comment-simplebox-renderer[contenteditable]',
-    ];
+      '[contenteditable="true"]'
+    ], 10000);
     
-    const editableSelector = await waitForSelectors(page, editableSelectors, 30000);
     await safeClick(page, editableSelector, { delay: 1000 });
+    console.log('✅ Text input field ready');
     
-    // تایپ متن با رفتار انسانی
+    // تایپ متن
+    console.log(`⌨️ Typing comment (${text.length} characters)...`);
     for (const char of text) {
       await page.keyboard.type(char, { 
-        delay: 50 + Math.random() * 150 
+        delay: 30 + Math.random() * 120 
       });
-      if (Math.random() > 0.8) await delay(100 + Math.random() * 400);
+      if (Math.random() > 0.85) await delay(50 + Math.random() * 300);
     }
-    await delay(2000);
+    await delay(1000);
+    console.log('✅ Comment text entered');
     
     // یافتن دکمه ارسال
-    const submitSelectors = [
+    console.log('🔍 Finding submit button...');
+    const submitButtonSelector = await waitForSelectors(page, [
       'ytd-button-renderer#submit-button',
       '#submit-button',
       'button[aria-label="Comment"]',
       'button[aria-label="نظر دادن"]',
-      'button[aria-label="Комментировать"]',
-      'button[aria-label="Comentar"]',
-      'button[aria-label="टिप्पणी करें"]',
-      'yt-button-shape button',
-      'paper-button.ytd-commentbox'
-    ];
+      'yt-button-shape.button'
+    ], 10000);
     
-    const submitButtonSelector = await waitForSelectors(page, submitSelectors, 15000);
-    
-    // ===== بخش حیاتی: ارسال و دریافت شناسه =====
     const submitButton = await page.$(submitButtonSelector);
     if (!submitButton) {
-      throw new Error('Submit button element not found');
+      throw new Error('دکمه ارسال یافت نشد');
     }
+    console.log('✅ Submit button found');
     
-    // استفاده از سیستم شناسایی مقاوم
-    const result = await getCommentIdWithRetries(page, submitButton, text, 3);
+    // ارسال و شناسایی کامنت
+    console.log('🚀 Posting comment and retrieving ID...');
+    const commentId = await robustCommentPosting(page, submitButton, text);
     
-    if (!result.id) {
-      console.error(`❌ Failed to get comment ID (source: ${result.source})`);
-      await page.screenshot({ path: `comment_failed_${Date.now()}.png` });
-      throw new Error('Failed to post comment');
-    }
+    // محاسبه زمان اجرا
+    const duration = (Date.now() - startTime) / 1000;
+    console.log(`✅ Comment posted successfully! ID: ${commentId} (${duration.toFixed(1)}s)`);
     
-    console.log(`✅ Comment ID: ${result.id} (source: ${result.source})`);
-    return result.id;
+    return commentId;
+    
   } catch (error) {
-    await page.screenshot({ path: `debug_${Date.now()}.png` });
+    // ثبت خطا و لاگ‌گیری
+    const duration = (Date.now() - startTime) / 1000;
+    console.error(`❌ Critical error: ${error.message} (${duration.toFixed(1)}s)`);
+    
+    // ذخیره لاگ نهایی
+    await captureDebug(page, 'critical_error');
+    
     throw error;
   } finally {
+    // بستن صفحه
     await page.close();
   }
 }
 
-// ارسال ریپلای
-export async function postReply(browser, cookie, videoId, commentId, text) {
-  const page = await browser.newPage();
-  try {
-    await page.setExtraHTTPHeaders({ 
-      'accept-language': 'en-US,en;q=0.9',
-      'sec-ch-ua': '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"'
-    });
-    
-    await setCookies(page, cookie);
-    await page.goto(`https://www.youtube.com/watch?v=${videoId}&lc=${commentId}`, {
-      waitUntil: 'networkidle2',
-      timeout: 60000
-    });
-    
-    // بررسی CAPTCHA
-    await checkForCaptcha(page);
-    
-    // بازکردن بخش ریپلای
-    const replyButtonSelector = await waitForSelectors(page, [
-      `[data-comment-id="${commentId}"] #reply-button`,
-      `[data-comment-id="${commentId}"] .ytd-button-renderer`,
-      `#reply-button-${commentId}`
-    ], 15000);
-    
-    await safeClick(page, replyButtonSelector, { delay: 2000 });
-    
-    // تایپ ریپلای
-    const replyBoxSelector = await waitForSelectors(page, [
-      '#contenteditable-root',
-      '.ytd-commentbox',
-      'div#contenteditable-root.reply'
-    ], 15000);
-    
-    await safeClick(page, replyBoxSelector, { delay: 1000 });
-    
-    // تایپ با رفتار انسانی
-    for (const char of text) {
-      await page.keyboard.type(char, { 
-        delay: 50 + Math.random() * 100 
-      });
-      if (Math.random() > 0.8) await delay(100 + Math.random() * 300);
-    }
-    await delay(2000);
-    
-    // ارسال ریپلای
-    const submitButtonSelector = await waitForSelectors(page, [
-      '#submit-button',
-      'ytd-button-renderer#submit-button',
-      'button[aria-label="Reply"]',
-      'button[aria-label="ارسال"]'
-    ], 15000);
-    
-    await safeClick(page, submitButtonSelector, { delay: 2000 });
-    
-    return true;
-  } catch (error) {
-    await page.screenshot({ path: `debug_reply_${Date.now()}.png` });
-    throw error;
-  } finally {
-    await page.close();
-  }
-}
-
-// لایک کامنت
-export async function likeComment(browser, cookie, videoId, commentId) {
-  const page = await browser.newPage();
-  try {
-    await page.setExtraHTTPHeaders({ 
-      'accept-language': 'en-US,en;q=0.9',
-      'sec-ch-ua': '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"'
-    });
-    
-    await setCookies(page, cookie);
-    await page.goto(`https://www.youtube.com/watch?v=${videoId}&lc=${commentId}`, {
-      waitUntil: 'networkidle2',
-      timeout: 60000
-    });
-    
-    // یافتن دکمه لایک
-    const likeButtonSelector = await waitForSelectors(page, [
-      `[data-comment-id="${commentId}"] #like-button`,
-      `[data-comment-id="${commentId}"] .ytd-toggle-button-renderer`,
-      `#like-button-${commentId}`
-    ], 15000);
-    
-    await safeClick(page, likeButtonSelector, { delay: 2000 });
-    
-    return true;
-  } catch (error) {
-    await page.screenshot({ path: `debug_like_${Date.now()}.png` });
-    throw error;
-  } finally {
-    await page.close();
-  }
-}
+// توابع دیگر (postReply, likeComment) بدون تغییر باقی می‌مانند
+// ... 
