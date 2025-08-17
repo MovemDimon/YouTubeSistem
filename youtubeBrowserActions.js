@@ -5,7 +5,7 @@ import { delay } from './utils.js';
 // فعال‌سازی پلاگین‌های امنیتی
 puppeteer.use(StealthPlugin());
 
-// تنظیمات جدید برای محیط GitHub Actions
+// تنظیمات بهینه‌سازی شده برای GitHub Actions
 const BROWSER_ARGS = [
   '--no-sandbox',
   '--disable-setuid-sandbox',
@@ -41,7 +41,7 @@ export async function initBrowser(opts = {}) {
     args: [...BROWSER_ARGS, ...(opts.args || [])],
     defaultViewport: { width: 1366, height: 768 },
     ignoreHTTPSErrors: true,
-    protocolTimeout: opts.protocolTimeout || 120000,
+    protocolTimeout: opts.protocolTimeout || 180000, // افزایش زمان انتظار
     dumpio: true,
     slowMo: opts.slowMo || 0
   };
@@ -77,12 +77,13 @@ async function setCookies(page, cookie) {
   await delay(2000);
 }
 
-// تابع جدید برای تشخیص CAPTCHA
+// تابع تشخیص CAPTCHA
 async function checkForCaptcha(page) {
   const captchaSelectors = [
     '#captcha-container',
     '.captcha-box',
-    'form[action*="captcha"]'
+    'form[action*="captcha"]',
+    'iframe[src*="recaptcha"]'
   ];
   
   for (const selector of captchaSelectors) {
@@ -93,17 +94,17 @@ async function checkForCaptcha(page) {
   }
 }
 
-// بررسی فعال بودن کامنت‌ها (نسخه اصلاح شده)
+// بررسی فعال بودن کامنت‌ها
 async function checkCommentsEnabled(page) {
   const disabledSelectors = [
     '#message.ytd-comments-header-renderer',
     '.ytd-comments-header-renderer > .disabled-comments',
-    'yt-formatted-string.comment-dialog-renderer-message'
+    'yt-formatted-string.comment-dialog-renderer-message',
+    'yt-formatted-string[contains(text(), "comments are turned off")]'
   ];
   
-  // کلمات کلیدی برای تشخیص غیرفعال بودن کامنت‌ها
   const disabledKeywords = [
-    'disabled', 'off', 'غیرفعال', 'отключен', 'desactivado', 'अक्षम'
+    'disabled', 'off', 'غیرفعال', 'отключен', 'desactivado', 'अक्षम', '关闭评论'
   ];
   
   for (const selector of disabledSelectors) {
@@ -119,11 +120,11 @@ async function checkCommentsEnabled(page) {
   return true;
 }
 
-// تابع کمکی برای انتظار برای سلکتورها (نسخه بهبودیافته)
-async function waitForSelectors(page, selectors, timeout = 20000) {
+// تابع کمکی برای انتظار برای سلکتورها
+async function waitForSelectors(page, selectors, timeout = 30000) {
   for (const selector of selectors) {
     try {
-      await page.waitForSelector(selector, { 
+      const element = await page.waitForSelector(selector, { 
         timeout,
         visible: true,
         hidden: false
@@ -134,14 +135,12 @@ async function waitForSelectors(page, selectors, timeout = 20000) {
     }
   }
   
-  // اگر هیچ سلکتوری پیدا نشد، اسکرین‌شات بگیر
   await page.screenshot({ path: `selector_error_${Date.now()}.png` });
   throw new Error('None of the selectors found: ' + selectors.join(', '));
 }
 
-// تابع جدید برای کلیک ایمن روی عناصر
+// تابع برای کلیک ایمن روی عناصر
 async function safeClick(page, selector, options = {}) {
-  // اسکرول به عنصر
   await page.evaluate(selector => {
     const element = document.querySelector(selector);
     if (element) {
@@ -151,7 +150,6 @@ async function safeClick(page, selector, options = {}) {
   
   await delay(1000);
   
-  // کلیک با استفاده از JavaScript
   await page.evaluate(selector => {
     const element = document.querySelector(selector);
     if (element) {
@@ -164,10 +162,42 @@ async function safeClick(page, selector, options = {}) {
   await delay(options.delay || 1000);
 }
 
-// تابع جدید برای دریافت شناسه کامنت از ترافیک شبکه
+// تابع جدید: تشخیص شناسه کامنت از طریق MutationObserver
+async function detectCommentViaMutationObserver(page, text) {
+  return page.evaluate((searchText) => {
+    return new Promise((resolve) => {
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          for (const node of mutation.addedNodes) {
+            if (node.nodeType === 1 && node.matches?.('ytd-comment-thread-renderer')) {
+              const commentText = node.textContent || '';
+              if (commentText.includes(searchText)) {
+                const commentId = node.getAttribute('id')?.replace('comment-thread-', '');
+                if (commentId) {
+                  resolve(commentId);
+                  observer.disconnect();
+                  return;
+                }
+              }
+            }
+          }
+        }
+      });
+
+      observer.observe(document.body, { childList: true, subtree: true });
+      
+      setTimeout(() => {
+        observer.disconnect();
+        resolve(null);
+      }, 30000);
+    });
+  }, text.substring(0, 50));
+}
+
+// تابع بهبود یافته برای دریافت شناسه کامنت از شبکه
 async function getCommentIdFromNetwork(page) {
   return new Promise((resolve) => {
-    const timeout = setTimeout(() => resolve(null), 15000);
+    const timeout = setTimeout(() => resolve(null), 30000);
     
     const handler = async (response) => {
       try {
@@ -178,37 +208,27 @@ async function getCommentIdFromNetwork(page) {
           
           const data = await response.json();
           
-          // بررسی ساختارهای مختلف پاسخ
-          if (data?.actions) {
-            for (const action of data.actions) {
-              if (action?.createCommentAction?.contents?.commentThreadRenderer?.comment?.commentRenderer?.commentId) {
-                const commentId = action.createCommentAction.contents.commentThreadRenderer.comment.commentRenderer.commentId;
-                clearTimeout(timeout);
-                page.off('response', handler);
-                resolve(commentId);
-                return;
-              }
+          // الگوهای جدید شناسایی شناسه کامنت
+          const patterns = [
+            data?.actions?.[0]?.createCommentAction?.contents?.commentThreadRenderer?.comment?.commentRenderer?.commentId,
+            data?.response?.comment?.commentId,
+            data?.comment?.commentId,
+            data?.payload?.actions?.[0]?.createCommentAction?.commentCreateEntityKey,
+            data?.frameworkUpdates?.entityBatchUpdate?.mutations?.[0]?.payload?.commentEntity?.key,
+            data?.actions?.[0]?.addChatItemAction?.item?.liveChatTextMessageRenderer?.id
+          ];
+
+          for (const pattern of patterns) {
+            if (pattern) {
+              clearTimeout(timeout);
+              page.off('response', handler);
+              resolve(pattern);
+              return;
             }
-          }
-          
-          // ساختار جایگزین
-          if (data?.response?.comment?.commentId) {
-            clearTimeout(timeout);
-            page.off('response', handler);
-            resolve(data.response.comment.commentId);
-            return;
-          }
-          
-          // ساختار جایگزین 2
-          if (data?.comment?.commentId) {
-            clearTimeout(timeout);
-            page.off('response', handler);
-            resolve(data.comment.commentId);
-            return;
           }
         }
       } catch (e) {
-        // خطا در پردازش پاسخ
+        console.warn('Error processing network response:', e.message);
       }
     };
     
@@ -216,212 +236,184 @@ async function getCommentIdFromNetwork(page) {
   });
 }
 
-// تابع جدید برای دریافت شناسه کامنت با روش‌های پیشرفته
+// تابع نهایی برای دریافت شناسه کامنت
 async function getCommentId(page, commentText) {
-  // روش 1: انتظار برای ظاهر شدن کامنت و دریافت مستقیم
+  // روش 1: Mutation Observer (جدید و بسیار موثر)
   try {
-    await page.waitForSelector('ytd-comment-thread-renderer', { timeout: 20000 });
+    const commentId = await detectCommentViaMutationObserver(page, commentText);
+    if (commentId) return commentId;
+  } catch (e) {
+    console.warn('⚠️ MutationObserver method failed:', e.message);
+  }
+  
+  // روش 2: جستجو در شبکه
+  try {
+    const commentId = await getCommentIdFromNetwork(page);
+    if (commentId) return commentId;
+  } catch (e) {
+    console.warn('⚠️ Network method failed:', e.message);
+  }
+  
+  // روش 3: جستجوی مستقیم در DOM
+  try {
+    await page.waitForSelector('ytd-comment-thread-renderer, ytd-comment-renderer', { timeout: 30000 });
     
     const commentId = await page.evaluate((text) => {
-      const maxCheckLength = 30;
-      const searchText = text.substring(0, Math.min(text.length, maxCheckLength));
+      const comments = [
+        ...document.querySelectorAll('ytd-comment-thread-renderer, ytd-comment-renderer')
+      ];
       
-      // جستجوی کامنت با متن مشابه
-      const comments = Array.from(document.querySelectorAll('ytd-comment-thread-renderer'));
-      const matchingComment = comments.find(comment => 
-        comment.textContent.includes(searchText)
-      );
+      // جستجو بر اساس متن و حساب کاربری
+      const matchingComment = comments.find(comment => {
+        try {
+          const content = comment.querySelector('#content-text')?.textContent?.trim() || '';
+          const author = comment.querySelector('#author-text')?.textContent?.trim() || '';
+          const currentUser = document.querySelector('#channel-name')?.textContent?.trim() || '';
+          
+          return content.includes(text.substring(0, 30)) && 
+                 author === currentUser;
+        } catch (e) {
+          return false;
+        }
+      });
       
-      if (matchingComment) {
-        return matchingComment.getAttribute('data-comment-id');
-      }
-      
-      // استفاده از آخرین کامنت اگر پیدا نشد
-      if (comments.length > 0) {
-        return comments[0].getAttribute('data-comment-id');
-      }
-      
-      return null;
+      return matchingComment?.getAttribute('id')?.replace('comment-', '') || 
+             matchingComment?.getAttribute('data-comment-id') || 
+             null;
     }, commentText);
     
     if (commentId) return commentId;
   } catch (e) {
-    console.warn('⚠️ Method 1 for comment ID failed:', e.message);
+    console.warn('⚠️ DOM search method failed:', e.message);
   }
   
-  // روش 2: جستجو در ساختار صفحه
+  // روش 4: جستجو در localStorage
   try {
     const commentId = await page.evaluate(() => {
-      // جستجو در عناصر جدید
-      const newComments = document.querySelectorAll('ytd-comment-thread-renderer');
-      if (newComments.length > 0) return newComments[0].getAttribute('data-comment-id');
-      
-      // جستجو با استفاده از کلاس‌ها
-      const commentElements = document.querySelectorAll('[data-comment-id]');
-      if (commentElements.length > 0) {
-        return commentElements[commentElements.length - 1].getAttribute('data-comment-id');
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key.includes('commentId') || key.includes('comment_id')) {
+          const value = localStorage.getItem(key);
+          if (value && value.length > 10) return value;
+        }
       }
-      
       return null;
     });
     
     if (commentId) return commentId;
   } catch (e) {
-    console.warn('⚠️ Method 2 for comment ID failed:', e.message);
+    console.warn('⚠️ LocalStorage method failed:', e.message);
   }
   
-  // روش 3: جستجو در شبکه و پاسخ‌های AJAX
-  try {
-    const commentId = await getCommentIdFromNetwork(page);
-    if (commentId) return commentId;
-  } catch (e) {
-    console.warn('⚠️ Method 3 for comment ID failed:', e.message);
-  }
-  
-  // روش 4: جستجو در محتوای HTML
+  // روش 5: جستجو در محتوای HTML
   try {
     const commentId = await page.evaluate(() => {
-      const match = document.body.innerHTML.match(/"commentId":"(.*?)"/);
+      const html = document.documentElement.innerHTML;
+      const regex = /"commentId":"(.*?)"/;
+      const match = html.match(regex);
       return match ? match[1] : null;
     });
     
     if (commentId) return commentId;
   } catch (e) {
-    console.warn('⚠️ Method 4 for comment ID failed:', e.message);
+    console.warn('⚠️ HTML regex method failed:', e.message);
   }
   
-  // روش 5: جستجو در Web Storage
+  // روش 6: بررسی نوتیفیکیشن موفقیت‌آمیز
   try {
-    const commentId = await page.evaluate(() => {
-      // جستجو در localStorage
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key.toLowerCase().includes('commentid') || key.toLowerCase().includes('comment_id')) {
-          const value = localStorage.getItem(key);
-          if (value && value.length > 10) return value;
-        }
-      }
-      
-      // جستجو در sessionStorage
-      for (let i = 0; i < sessionStorage.length; i++) {
-        const key = sessionStorage.key(i);
-        if (key.toLowerCase().includes('commentid') || key.toLowerCase().includes('comment_id')) {
-          const value = sessionStorage.getItem(key);
-          if (value && value.length > 10) return value;
-        }
-      }
-      
-      return null;
+    const hasSuccess = await page.evaluate(() => {
+      return !!document.querySelector('.ytp-toast-success');
     });
     
-    if (commentId) return commentId;
+    if (hasSuccess) {
+      console.log('✅ Comment posted successfully but ID not found');
+      return 'success-no-id';
+    }
   } catch (e) {
-    console.warn('⚠️ Method 5 for comment ID failed:', e.message);
+    console.warn('⚠️ Success notification check failed:', e.message);
   }
   
-  // اگر همه روش‌ها شکست خوردند
   await page.screenshot({ path: `comment_id_error_${Date.now()}.png` });
-  throw new Error('Failed to get comment ID after 5 attempts');
+  throw new Error('Failed to get comment ID after 6 attempts');
 }
 
-// ارسال کامنت (نسخه کاملاً اصلاح شده)
+// ارسال کامنت (نسخه پایدار نهایی)
 export async function postComment(browser, cookie, videoId, text) {
   const page = await browser.newPage();
   try {
-    // تنظیمات اولیه
+    // فعال‌سازی لاگ‌های دیباگ
+    page.on('console', msg => console.log('PAGE LOG:', msg.text()));
+    page.on('response', res => console.log(`RESPONSE [${res.status()}] ${res.url()}`));
+    page.on('requestfailed', req => console.error('REQUEST FAILED:', req.url(), req.failure()?.errorText));
+    
     await page.setJavaScriptEnabled(true);
     await page.setExtraHTTPHeaders({ 
       'accept-language': 'en-US,en;q=0.9',
       'sec-ch-ua': '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"'
     });
     
-    // تنظیم کوکی‌ها
     await setCookies(page, cookie);
     
-    // بازکردن ویدیو با تنظیمات جدید
     await page.goto(`https://www.youtube.com/watch?v=${videoId}`, {
       waitUntil: 'networkidle2',
       timeout: 120000
     });
     
-    // بررسی CAPTCHA
     await checkForCaptcha(page);
-    
-    // تأخیر تصادفی بیشتر
     await delay(5000 + Math.random() * 5000);
     
-    // اسکرول به بخش کامنت‌ها با روش جدید
+    // اسکرول به بخش کامنت‌ها
     await page.evaluate(() => {
-      const commentSection = document.querySelector('ytd-comments');
-      if (commentSection) {
-        commentSection.scrollIntoView({behavior: 'smooth', block: 'start'});
-      } else {
-        window.scrollBy(0, 1500);
-      }
+      window.scrollTo(0, document.body.scrollHeight * 0.7);
     });
     await delay(3000);
     
-    // بررسی فعال بودن کامنت‌ها
     await checkCommentsEnabled(page);
     
-    // فعال‌سازی باکس کامنت با سلکتورهای جایگزین
+    // فعال‌سازی باکس کامنت
     const commentBoxSelector = await waitForSelectors(page, [
       '#placeholder-area',
       '#comments-container',
       'ytd-commentbox',
-      'ytd-comment-simplebox-renderer',
-      '.ytd-comments-header-renderer',
-      'ytd-commentbox#commentbox'
-    ], 25000);
+      'ytd-comment-simplebox-renderer'
+    ], 30000);
     
-    // استفاده از کلیک ایمن
     await safeClick(page, commentBoxSelector, { delay: 2000 });
     
-    // سلکتورهای به‌روز برای باکس نوشتن کامنت
-    const editableSelectors = [
-      '#simplebox-placeholder', // تمرکز روی باکس نوشتن کامنت (موثر و پایدار)
-      'yt-formatted-string#placeholder-area', // نسخه‌ی جدید placeholder
-      'div#contenteditable-root', // ورژن‌های قدیمی‌تر
-      'ytd-comment-simplebox-renderer[contenteditable]', // fallback
-    ];
+    // تایپ کامنت
+    const editableSelector = await waitForSelectors(page, [
+      '#simplebox-placeholder',
+      'yt-formatted-string#placeholder-area',
+      'div#contenteditable-root'
+    ], 30000);
     
-    const editableSelector = await waitForSelectors(page, editableSelectors, 30000);
-    
-    // استفاده از کلیک ایمن برای باکس متن
     await safeClick(page, editableSelector, { delay: 1000 });
     
-    // تایپ با رفتار انسانی
     for (const char of text) {
       await page.keyboard.type(char, { 
         delay: 50 + Math.random() * 150 
       });
-      // تأخیر تصادفی بعد از هر 5 کاراکتر
       if (Math.random() > 0.8) await delay(100 + Math.random() * 400);
     }
     await delay(2000);
     
-    // ارسال کامنت با سلکتورهای جایگزین
-    const submitSelectors = [
+    // ارسال کامنت
+    const submitButtonSelector = await waitForSelectors(page, [
       'ytd-button-renderer#submit-button',
       '#submit-button',
       'button[aria-label="Comment"]',
       'button[aria-label="نظر دادن"]',
       'button[aria-label="Комментировать"]',
       'button[aria-label="Comentar"]',
-      'button[aria-label="टिप्पणी करें"]',
-      'yt-button-shape button',
-      'paper-button.ytd-commentbox'
-    ];
+      'button[aria-label="टिप्पणी करें"]'
+    ], 20000);
     
-    const submitButtonSelector = await waitForSelectors(page, submitSelectors, 15000);
-    
-    // استفاده از کلیک ایمن برای دکمه ارسال
-    await safeClick(page, submitButtonSelector, { delay: 2000 });
+    await safeClick(page, submitButtonSelector, { delay: 3000 });
     
     // انتظار برای ثبت کامنت
-    await delay(5000);
+    await delay(8000); // افزایش زمان انتظار
     
-    // دریافت شناسه کامنت با روش پیشرفته
+    // دریافت شناسه کامنت
     const commentId = await getCommentId(page, text);
     
     return commentId;
@@ -448,7 +440,6 @@ export async function postReply(browser, cookie, videoId, commentId, text) {
       timeout: 60000
     });
     
-    // بررسی CAPTCHA
     await checkForCaptcha(page);
     
     // بازکردن بخش ریپلای
@@ -462,14 +453,13 @@ export async function postReply(browser, cookie, videoId, commentId, text) {
     
     // تایپ ریپلای
     const replyBoxSelector = await waitForSelectors(page, [
-      '#contenteditable-root',
+      '#contenteditable-root.reply',
       '.ytd-commentbox',
-      'div#contenteditable-root.reply'
+      'div#contenteditable-root'
     ], 15000);
     
     await safeClick(page, replyBoxSelector, { delay: 1000 });
     
-    // تایپ با رفتار انسانی
     for (const char of text) {
       await page.keyboard.type(char, { 
         delay: 50 + Math.random() * 100 
@@ -482,8 +472,7 @@ export async function postReply(browser, cookie, videoId, commentId, text) {
     const submitButtonSelector = await waitForSelectors(page, [
       '#submit-button',
       'ytd-button-renderer#submit-button',
-      'button[aria-label="Reply"]',
-      'button[aria-label="ارسال"]'
+      'button[aria-label="Reply"]'
     ], 15000);
     
     await safeClick(page, submitButtonSelector, { delay: 2000 });
