@@ -1,18 +1,13 @@
 {
-  "name": "youtube-comment-system",
-  "version": "2.1.0",
-  "type": "module",
-  "dependencies": {
-    "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2",
-    "puppeteer": "^24.9.0",
-    "jsdom": "^22.1.0",
-    "node-fetch": "^3.3.2",
-    "@octokit/rest": "^20.0.0"
-  },
+  "name": "youtube-trend-monitor",
+  "version": "1.0.0",
+  "private": true,
   "scripts": {
-    "start": "node main.js",
-    "search": "node searchAndStoreVideos.js",
-    "fix-deps": "npm audit fix --force"
+    "start": "node scripts/monitorVideos.js"
+  },
+  "dependencies": {
+    "axios": "^1.4.0",
+    "cheerio": "^1.0.0-rc.12",
+    "fs-extra": "^11.1.1"
   }
 }
