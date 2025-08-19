@@ -1,0 +1,35 @@
+name: Video Monitor
+
+on:
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run video monitor
+        env:
+          COOKIE1: ${{ secrets.COOKIE1 }}
+          COOKIE2: ${{ secrets.COOKIE2 }}
+          COOKIE3: ${{ secrets.COOKIE3 }}
+          COOKIE4: ${{ secrets.COOKIE4 }}
+          COOKIE5: ${{ secrets.COOKIE5 }}
+          COOKIE6: ${{ secrets.COOKIE6 }}
+          COOKIE7: ${{ secrets.COOKIE7 }}
+          YT_API_KEY: ${{ secrets.YT_API_KEY }}        # optional, strongly recommended
+          VIEW_THRESHOLD: 5000                        # default can be overridden in Secrets/Repo variables
+          MAX_PER_KEYWORD: 30                         # limit per keyword (speed control)
+        run: node scripts/monitorVideos.js
