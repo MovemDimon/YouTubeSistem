@@ -4,7 +4,7 @@ const fs = require('fs-extra');
 const path = require('path');
 
 const VIEW_THRESHOLD = parseInt(process.env.VIEW_THRESHOLD || '5000', 10);
-const MAX_PER_KEYWORD = parseInt(process.env.MAX_PER_KEYWORD || '30', 10);
+const MAX_PER_KEYWORD = parseInt(process.env.MAX_PER_KEYWORD || '500', 10);
 const YT_API_KEY = process.env.YT_API_KEY || process.env.YOUTUBE_API_KEY || null;
 
 // Normalize cookie env vars (accept JSON or header-string)
