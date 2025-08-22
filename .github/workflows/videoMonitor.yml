@@ -18,7 +18,7 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run video monitor
         env:
@@ -31,5 +31,5 @@ jobs:
           COOKIE7: ${{ secrets.COOKIE7 }}
           YT_API_KEY: ${{ secrets.YT_API_KEY }}        # optional, strongly recommended
           VIEW_THRESHOLD: 5000                        # default can be overridden in Secrets/Repo variables
-          MAX_PER_KEYWORD: 30                         # limit per keyword (speed control)
+          MAX_PER_KEYWORD: 700                         # limit per keyword (speed control)
         run: node scripts/monitorVideos.js
