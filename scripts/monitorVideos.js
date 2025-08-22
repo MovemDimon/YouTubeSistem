@@ -4,8 +4,6 @@ const path = require("path");
 
 const VIEW_THRESHOLD = parseInt(process.env.VIEW_THRESHOLD || "5000", 10);
 const MAX_PER_KEYWORD = parseInt(process.env.MAX_PER_KEYWORD || "700", 10);
-const YT_API_KEY =
-  process.env.YT_API_KEY || process.env.YOUTUBE_API_KEY || null;
 
 // --- cookie normalization ---
 function normalizeCookieValue(raw) {
@@ -79,57 +77,7 @@ function parseHumanNumber(s) {
   return Number.isNaN(n) ? 0 : n;
 }
 
-/* --------- API SEARCH (supports pageToken) ---------- */
-async function ytApiSearch(keyword, maxResults = 25) {
-  let results = [];
-  let pageToken = null;
-  while (results.length < maxResults) {
-    const resp = await axios.get(
-      "https://www.googleapis.com/youtube/v3/search",
-      {
-        params: {
-          key: YT_API_KEY,
-          q: keyword,
-          part: "snippet",
-          type: "video",
-          order: "date",
-          maxResults: 50,
-          pageToken: pageToken || "",
-        },
-        timeout: 20000,
-      }
-    );
-    const ids = (resp.data.items || [])
-      .map((i) => i.id?.videoId)
-      .filter(Boolean);
-    if (ids.length === 0) break;
-    const vResp = await axios.get(
-      "https://www.googleapis.com/youtube/v3/videos",
-      {
-        params: {
-          key: YT_API_KEY,
-          id: ids.join(","),
-          part: "snippet,statistics",
-        },
-        timeout: 20000,
-      }
-    );
-    results.push(
-      ...(vResp.data.items || []).map((v) => ({
-        videoId: v.id,
-        title: v.snippet?.title || "",
-        url: `https://www.youtube.com/watch?v=${v.id}`,
-        views: parseInt(v.statistics?.viewCount || "0", 10),
-        publishedAt: v.snippet?.publishedAt || null,
-      }))
-    );
-    pageToken = resp.data.nextPageToken;
-    if (!pageToken) break;
-  }
-  return results.slice(0, maxResults);
-}
-
-/* --------- SCRAPING SEARCH (with continuation) ---------- */
+/* --------- SCRAPING SEARCH (ytInitialData + continuation) ---------- */
 async function scrapeSearch(keyword, maxResults = 25) {
   const headers = { "User-Agent": "Mozilla/5.0" };
   if (cookies.length)
@@ -141,10 +89,10 @@ async function scrapeSearch(keyword, maxResults = 25) {
   const resp = await axios.get(url, { headers, timeout: 20000 });
   const html = resp.data;
 
-  const initMatch = html.match(
-    /ytInitialData\s*=\s*(\{.+?\});<\/script>/s
-  ) || html.match(/var ytInitialData = (\{.+?\});/s);
-  const cfgMatch = html.match(/ytcfg\.set\(({.+?})\);/s);
+  const initMatch =
+    html.match(/ytInitialData\s*=\s*(\{.+?\});<\/script>/s) ||
+    html.match(/var ytInitialData = (\{.+?\});/s);
+  const cfgMatch = html.match(/ytcfg\.set\((\{.+?\})\);/s);
   if (!initMatch || !cfgMatch) return [];
 
   const initialData = JSON.parse(initMatch[1]);
@@ -232,29 +180,15 @@ async function scrapeSearch(keyword, maxResults = 25) {
 
 async function getVideoViews(videoId) {
   try {
-    if (YT_API_KEY) {
-      const resp = await axios.get(
-        "https://www.googleapis.com/youtube/v3/videos",
-        {
-          params: { key: YT_API_KEY, id: videoId, part: "statistics" },
-          timeout: 20000,
-        }
-      );
-      const it = (resp.data.items || [])[0];
-      return it?.statistics?.viewCount
-        ? parseInt(it.statistics.viewCount, 10)
-        : null;
-    } else {
-      const headers = { "User-Agent": "Mozilla/5.0" };
-      if (cookies.length)
-        headers["Cookie"] = cookies[Math.floor(Math.random() * cookies.length)];
-      const r = await axios.get(
-        `https://www.youtube.com/watch?v=${videoId}`,
-        { headers, timeout: 20000 }
-      );
-      const mm = r.data.match(/"viewCount":"?(\d+)"?/);
-      if (mm) return parseInt(mm[1], 10);
-    }
+    const headers = { "User-Agent": "Mozilla/5.0" };
+    if (cookies.length)
+      headers["Cookie"] = cookies[Math.floor(Math.random() * cookies.length)];
+    const r = await axios.get(`https://www.youtube.com/watch?v=${videoId}`, {
+      headers,
+      timeout: 20000,
+    });
+    const mm = r.data.match(/"viewCount":"?(\d+)"?/);
+    if (mm) return parseInt(mm[1], 10);
   } catch {
     return null;
   }
@@ -270,11 +204,11 @@ async function getVideoViews(videoId) {
     "MAX_PER_KEYWORD=",
     MAX_PER_KEYWORD
   );
-  if (!YT_API_KEY && cookies.length === 0) {
-    console.error("ERROR: No YT API key and no cookies.");
+  if (cookies.length === 0) {
+    console.error("ERROR: No cookies provided. Scraping requires cookies.");
     process.exit(1);
   }
-  console.log(`Using ${YT_API_KEY ? "API" : "Scraping"} method`);
+  console.log("Using Scraping method (ytInitialData)");
 
   const keywordsByLang = loadKeywords();
   const langs = Object.keys(keywordsByLang);
@@ -287,11 +221,7 @@ async function getVideoViews(videoId) {
   for (const [lang, kws] of Object.entries(keywordsByLang)) {
     for (const kw of kws) {
       try {
-        let vids = [];
-        if (YT_API_KEY)
-          vids = await ytApiSearch(kw, MAX_PER_KEYWORD);
-        else
-          vids = await scrapeSearch(kw, MAX_PER_KEYWORD);
+        let vids = await scrapeSearch(kw, MAX_PER_KEYWORD);
         vids = vids.map((v) => ({ ...v, language: lang }));
         collected.push(...vids);
         await wait(500);
