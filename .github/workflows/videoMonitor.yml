@@ -29,7 +29,7 @@ jobs:
           COOKIE5: ${{ secrets.COOKIE5 }}
           COOKIE6: ${{ secrets.COOKIE6 }}
           COOKIE7: ${{ secrets.COOKIE7 }}
-          YT_API_KEY: ${{ secrets.YT_API_KEY }}        # optional, strongly recommended
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}        # optional, strongly recommended
           VIEW_THRESHOLD: 5000                        # default can be overridden in Secrets/Repo variables
           MAX_PER_KEYWORD: 700                         # limit per keyword (speed control)
         run: node scripts/monitorVideos.js
