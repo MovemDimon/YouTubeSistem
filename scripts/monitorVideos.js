@@ -3,7 +3,7 @@ const fs = require("fs-extra");
 const path = require("path");
 
 const VIEW_THRESHOLD = parseInt(process.env.VIEW_THRESHOLD || "5000", 10);
-const MAX_PER_KEYWORD = parseInt(process.env.MAX_PER_KEYWORD || "700", 10);
+const MAX_PER_KEYWORD = parseInt(process.env.MAX_PER_KEYWORD || "1000", 10);
 
 // --- cookie normalization ---
 function normalizeCookieValue(raw) {
