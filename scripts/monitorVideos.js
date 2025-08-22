@@ -17,7 +17,10 @@ function normalizeCookieValue(raw) {
         if (v) parts.push(`${k}=${v}`);
       }
       return parts.join("; ");
-    } catch {}
+    } catch (e) {
+      console.warn("⚠️ Failed to parse cookie JSON:", e.message);
+      return null;
+    }
   }
   return trimmed;
 }
@@ -31,6 +34,7 @@ const rawCookies = [
   process.env.COOKIE7,
 ].filter(Boolean);
 const cookies = rawCookies.map(normalizeCookieValue).filter(Boolean);
+console.log(`🍪 Loaded ${cookies.length} cookies after normalization`);
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const kwDir = path.join(__dirname, "..", "data", "keywords");
@@ -51,7 +55,8 @@ function loadKeywords() {
       else if (typeof data === "object")
         result[lang] = Object.values(data).flat().filter(Boolean);
       else result[lang] = [];
-    } catch {
+    } catch (e) {
+      console.warn(`⚠️ Failed to load keywords for ${lang}:`, e.message);
       result[lang] = [];
     }
   }
@@ -79,6 +84,7 @@ function parseHumanNumber(s) {
 
 /* --------- SCRAPING SEARCH (ytInitialData + continuation) ---------- */
 async function scrapeSearch(keyword, maxResults = 25) {
+  console.log(`🔎 Starting scrape for keyword: "${keyword}" (max ${maxResults})`);
   const headers = { "User-Agent": "Mozilla/5.0" };
   if (cookies.length)
     headers["Cookie"] = cookies[Math.floor(Math.random() * cookies.length)];
@@ -86,6 +92,7 @@ async function scrapeSearch(keyword, maxResults = 25) {
   const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(
     keyword
   )}&sp=EgIQAQ%3D%3D`;
+  console.log("➡️ Fetching:", url);
   const resp = await axios.get(url, { headers, timeout: 20000 });
   const html = resp.data;
 
@@ -93,7 +100,10 @@ async function scrapeSearch(keyword, maxResults = 25) {
     html.match(/ytInitialData\s*=\s*(\{.+?\});<\/script>/s) ||
     html.match(/var ytInitialData = (\{.+?\});/s);
   const cfgMatch = html.match(/ytcfg\.set\((\{.+?\})\);/s);
-  if (!initMatch || !cfgMatch) return [];
+  if (!initMatch || !cfgMatch) {
+    console.warn(`⚠️ ytInitialData or ytcfg not found. Cookie may be invalid.`);
+    return [];
+  }
 
   const initialData = JSON.parse(initMatch[1]);
   const cfg = JSON.parse(cfgMatch[1]);
@@ -127,6 +137,7 @@ async function scrapeSearch(keyword, maxResults = 25) {
     for (const k in obj) collect(obj[k]);
   }
   collect(initialData);
+  console.log(`✅ Found ${videos.length} initial videos for "${keyword}"`);
 
   // continuation
   let contToken = null;
@@ -140,6 +151,7 @@ async function scrapeSearch(keyword, maxResults = 25) {
   findContinuation(initialData);
 
   while (videos.length < maxResults && contToken) {
+    console.log(`🔄 Fetching continuation (currently ${videos.length} videos)`);
     const apiUrl = `https://www.youtube.com/youtubei/v1/search?key=${INNERTUBE_API_KEY}`;
     const body = { context, continuation: contToken };
     const r = await axios.post(apiUrl, body, { headers, timeout: 20000 });
@@ -173,8 +185,10 @@ async function scrapeSearch(keyword, maxResults = 25) {
       for (const k in obj) collect2(obj[k]);
     }
     collect2(data);
+    console.log(`➡️ Collected ${videos.length} videos so far for "${keyword}"`);
     await wait(1000);
   }
+  console.log(`🎯 Final count for "${keyword}": ${videos.length} videos`);
   return videos.slice(0, maxResults);
 }
 
@@ -189,7 +203,8 @@ async function getVideoViews(videoId) {
     });
     const mm = r.data.match(/"viewCount":"?(\d+)"?/);
     if (mm) return parseInt(mm[1], 10);
-  } catch {
+  } catch (e) {
+    console.warn(`⚠️ Failed to get views for ${videoId}:`, e.message);
     return null;
   }
   return null;
@@ -205,7 +220,7 @@ async function getVideoViews(videoId) {
     MAX_PER_KEYWORD
   );
   if (cookies.length === 0) {
-    console.error("ERROR: No cookies provided. Scraping requires cookies.");
+    console.error("❌ ERROR: No cookies provided. Scraping requires cookies.");
     process.exit(1);
   }
   console.log("Using Scraping method (ytInitialData)");
@@ -213,20 +228,22 @@ async function getVideoViews(videoId) {
   const keywordsByLang = loadKeywords();
   const langs = Object.keys(keywordsByLang);
   if (langs.length === 0) {
-    console.error("No keyword files in data/keywords/");
+    console.error("❌ No keyword files in data/keywords/");
     process.exit(1);
   }
 
   const collected = [];
   for (const [lang, kws] of Object.entries(keywordsByLang)) {
+    console.log(`🌐 Processing language: ${lang} (${kws.length} keywords)`);
     for (const kw of kws) {
       try {
         let vids = await scrapeSearch(kw, MAX_PER_KEYWORD);
         vids = vids.map((v) => ({ ...v, language: lang }));
         collected.push(...vids);
+        console.log(`✅ Keyword "${kw}" done, total collected: ${collected.length}`);
         await wait(500);
       } catch (e) {
-        console.warn("Error for", kw, e.message);
+        console.warn("⚠️ Error for keyword", kw, e.message);
         await wait(1000);
       }
     }
@@ -234,9 +251,9 @@ async function getVideoViews(videoId) {
 
   const deduped = dedupe(collected);
   fs.writeJsonSync(outCollected, deduped, { spaces: 2 });
-  console.log(`Collected ${deduped.length} videos`);
+  console.log(`💾 Saved ${deduped.length} unique videos to collectedVideos.json`);
 
-  console.log("Waiting 1 hour...");
+  console.log("⏳ Waiting 1 hour before re-checking views...");
   await wait(60 * 60 * 1000);
 
   const trendingByLang = {};
@@ -247,6 +264,7 @@ async function getVideoViews(videoId) {
       if (growth >= VIEW_THRESHOLD) {
         if (!trendingByLang[v.language]) trendingByLang[v.language] = [];
         trendingByLang[v.language].push({ ...v, newViews, growth });
+        console.log(`🔥 Trending detected: ${v.title} (+${growth} views)`);
       }
     }
     await wait(500);
@@ -266,5 +284,5 @@ async function getVideoViews(videoId) {
     }
   }
   fs.writeFileSync(outMD, md.join("\n"));
-  console.log("Done. Report in", outMD);
+  console.log("✅ Done. Report generated at", outMD);
 })();
