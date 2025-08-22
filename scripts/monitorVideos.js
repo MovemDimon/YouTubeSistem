@@ -115,7 +115,7 @@ async function scrapeSearch(keyword, maxResults = 25) {
     if (!obj || typeof obj !== "object") return;
     if (obj.videoRenderer && obj.videoRenderer.videoId) {
       const vr = obj.videoRenderer;
-      const videoId = vr.videoId;
+      const videoId = vr.videoRenderer?.videoId || vr.videoId;
       const title = vr.title?.runs?.map((r) => r.text).join("") || "";
       let views = 0;
       const txt =
@@ -150,6 +150,7 @@ async function scrapeSearch(keyword, maxResults = 25) {
   }
   findContinuation(initialData);
 
+  let noNewVideosCount = 0;
   while (videos.length < maxResults && contToken) {
     console.log(`🔄 Fetching continuation (currently ${videos.length} videos)`);
     const apiUrl = `https://www.youtube.com/youtubei/v1/search?key=${INNERTUBE_API_KEY}`;
@@ -159,6 +160,7 @@ async function scrapeSearch(keyword, maxResults = 25) {
     contToken = null;
     findContinuation(data);
 
+    const before = videos.length;
     function collect2(obj) {
       if (!obj || typeof obj !== "object") return;
       if (obj.videoRenderer && obj.videoRenderer.videoId) {
@@ -185,8 +187,19 @@ async function scrapeSearch(keyword, maxResults = 25) {
       for (const k in obj) collect2(obj[k]);
     }
     collect2(data);
+
+    if (videos.length === before) {
+      noNewVideosCount++;
+      if (noNewVideosCount >= 3) {
+        console.log(`⚠️ No new videos after 3 continuations, breaking.`);
+        break;
+      }
+    } else {
+      noNewVideosCount = 0;
+    }
+
     console.log(`➡️ Collected ${videos.length} videos so far for "${keyword}"`);
-    await wait(1000);
+    await wait(1000 + Math.floor(Math.random() * 500));
   }
   console.log(`🎯 Final count for "${keyword}": ${videos.length} videos`);
   return videos.slice(0, maxResults);
@@ -232,16 +245,28 @@ async function getVideoViews(videoId) {
     process.exit(1);
   }
 
-  const collected = [];
+  let collected = fs.existsSync(outCollected)
+    ? fs.readJsonSync(outCollected)
+    : [];
+
   for (const [lang, kws] of Object.entries(keywordsByLang)) {
     console.log(`🌐 Processing language: ${lang} (${kws.length} keywords)`);
     for (const kw of kws) {
+      // skip if keyword already has enough videos
+      const already = collected.filter((v) => v.language === lang && v.keyword === kw);
+      if (already.length >= MAX_PER_KEYWORD) {
+        console.log(`⏭️ Skipping "${kw}" (already ${already.length} videos saved)`);
+        continue;
+      }
+
       try {
         let vids = await scrapeSearch(kw, MAX_PER_KEYWORD);
-        vids = vids.map((v) => ({ ...v, language: lang }));
+        vids = vids.map((v) => ({ ...v, language: lang, keyword: kw }));
         collected.push(...vids);
-        console.log(`✅ Keyword "${kw}" done, total collected: ${collected.length}`);
-        await wait(500);
+        const deduped = dedupe(collected);
+        fs.writeJsonSync(outCollected, deduped, { spaces: 2 });
+        console.log(`💾 Checkpoint saved: ${deduped.length} unique videos (after "${kw}")`);
+        await wait(500 + Math.floor(Math.random() * 500));
       } catch (e) {
         console.warn("⚠️ Error for keyword", kw, e.message);
         await wait(1000);
@@ -251,7 +276,7 @@ async function getVideoViews(videoId) {
 
   const deduped = dedupe(collected);
   fs.writeJsonSync(outCollected, deduped, { spaces: 2 });
-  console.log(`💾 Saved ${deduped.length} unique videos to collectedVideos.json`);
+  console.log(`💾 Final save: ${deduped.length} unique videos to collectedVideos.json`);
 
   console.log("⏳ Waiting 1 hour before re-checking views...");
   await wait(60 * 60 * 1000);
