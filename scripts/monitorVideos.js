@@ -2,8 +2,12 @@ const axios = require("axios");
 const fs = require("fs-extra");
 const path = require("path");
 
-const VIEW_THRESHOLD = parseInt(process.env.VIEW_THRESHOLD || "3000", 10); // حداقل نرخ رشد (views/hour)
-const MAX_PER_KEYWORD = parseInt(process.env.MAX_PER_KEYWORD || "1000", 10);
+const DAILY_THRESHOLD = parseInt(process.env.VIEW_DAILY_THRESHOLD || "100000", 10);
+const MIN_VIEWS = parseInt(process.env.MIN_VIEWS || "20000", 10);
+const MAX_AGE_DAYS = parseInt(process.env.MAX_AGE_DAYS || "7", 10);
+const MAX_CONT_PAGES = parseInt(process.env.MAX_CONT_PAGES || "1000", 10);
+
+console.log("⚙️ Config:", { DAILY_THRESHOLD, MIN_VIEWS, MAX_AGE_DAYS, MAX_CONT_PAGES });
 
 // ===== Cookie Normalization & Pool =====
 function normalizeCookieValue(raw) {
@@ -48,7 +52,6 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const kwDir = path.join(__dirname, "..", "data", "keywords");
 const outCollected = path.join(__dirname, "..", "data", "collectedVideos.json");
 const outMD = path.join(__dirname, "..", "data", "trending_videos.md");
-
 fs.ensureDirSync(path.join(__dirname, "..", "data"));
 
 function loadKeywords() {
@@ -90,36 +93,93 @@ function parseHumanNumber(s) {
   return Number.isNaN(n) ? 0 : n;
 }
 
-function parsePublishedTime(text) {
-  if (!text) return new Date();
-  text = text.toLowerCase();
-  const now = new Date();
-  let match;
-  if ((match = text.match(/(\d+)\s*hour/))) {
-    return new Date(now.getTime() - parseInt(match[1], 10) * 3600000);
+// Robust search helper: find first property with given key name anywhere in object (depth-first)
+function findFirst(obj, keyName) {
+  if (!obj || typeof obj !== "object") return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, keyName)) return obj[keyName];
+  for (const k of Object.keys(obj)) {
+    const val = obj[k];
+    if (val && typeof val === "object") {
+      const found = findFirst(val, keyName);
+      if (found !== undefined) return found;
+    }
   }
-  if ((match = text.match(/(\d+)\s*minute/))) {
-    return new Date(now.getTime() - parseInt(match[1], 10) * 60000);
-  }
-  if ((match = text.match(/(\d+)\s*day/))) {
-    return new Date(now.getTime() - parseInt(match[1], 10) * 86400000);
-  }
-  if ((match = text.match(/premiered\s+(.+)/))) {
-    const d = new Date(match[1]);
-    if (!isNaN(d)) return d;
-  }
-  return now;
+  return undefined;
 }
 
-function computeViewRate(video) {
+// Improved published time parsing: returns Date or null
+function parsePublishedTime(text) {
+  if (!text) return null;
+  text = String(text).trim().toLowerCase();
+
+  const now = new Date();
+
+  // relative time: minutes/hours/days/weeks/months/years
+  let m;
+  if ((m = text.match(/(\d+)\s*minute/))) {
+    return new Date(now.getTime() - parseInt(m[1], 10) * 60000);
+  }
+  if ((m = text.match(/(\d+)\s*hour/))) {
+    return new Date(now.getTime() - parseInt(m[1], 10) * 3600000);
+  }
+  if ((m = text.match(/(\d+)\s*day/))) {
+    return new Date(now.getTime() - parseInt(m[1], 10) * 86400000);
+  }
+  if ((m = text.match(/(\d+)\s*week/))) {
+    return new Date(now.getTime() - parseInt(m[1], 10) * 7 * 86400000);
+  }
+  if ((m = text.match(/(\d+)\s*month/))) {
+    return new Date(now.getTime() - parseInt(m[1], 10) * 30 * 86400000);
+  }
+  if ((m = text.match(/(\d+)\s*year/))) {
+    return new Date(now.getTime() - parseInt(m[1], 10) * 365 * 86400000);
+  }
+
+  // "streamed 3 hours ago" or "premiered Sep 20, 2023"
+  if ((m = text.match(/streamed\s+(\d+)\s*hour/))) {
+    return new Date(now.getTime() - parseInt(m[1], 10) * 3600000);
+  }
+  if ((m = text.match(/premiered\s+(.+)/))) {
+    const dateStr = m[1].trim();
+    const d = new Date(dateStr);
+    if (!isNaN(d)) return d;
+  }
+
+  // If text looks like a full date (e.g., "Sep 20, 2023" or "20 Sep 2023")
+  const tryDate = new Date(text);
+  if (!isNaN(tryDate)) return tryDate;
+
+  // fallback: try to find a 'publishedTimeText' deeper in obj (handled before calling)
+  return null;
+}
+
+function computeViewsPerDay(video) {
   if (!video.views || !video.publishedAt) return 0;
   const publishedDate = parsePublishedTime(video.publishedAt);
-  const ageHours = Math.max((Date.now() - publishedDate.getTime()) / 3600000, 0.5);
-  return video.views / ageHours; // views per hour
+  if (!publishedDate) return 0;
+  const ageMs = Date.now() - publishedDate.getTime();
+  const ageDays = Math.max(ageMs / (1000 * 60 * 60 * 24), 0.020833333); // min 0.5 hour ~ 0.0208 day
+  return video.views / ageDays;
 }
 
 function isViralCandidate(video) {
-  return computeViewRate(video) >= VIEW_THRESHOLD;
+  // 1) parse published date
+  const publishedDate = parsePublishedTime(video.publishedAt);
+  if (!publishedDate) return false;
+
+  // 2) age in days
+  const ageDays = (Date.now() - publishedDate.getTime()) / (1000 * 60 * 60 * 24);
+  if (ageDays < 0) return false; // future-dated? skip
+  if (ageDays > MAX_AGE_DAYS) return false; // too old
+
+  // 3) absolute views
+  if (!video.views || video.views < MIN_VIEWS) return false;
+
+  // 4) views/day threshold
+  const vpd = computeViewsPerDay(video);
+  if (vpd >= DAILY_THRESHOLD) return true;
+
+  return false;
 }
 
 // ===== Common Headers =====
@@ -131,112 +191,260 @@ function baseHeaders() {
   };
 }
 
-// ===== Scrape Function =====
-async function scrapeSearch(keyword, maxResults = 25) {
-  console.log(`🔎 Scraping keyword: "${keyword}" (max ${maxResults})`);
+// ===== Helper: find continuation token in object =====
+function findContinuationToken(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  let token = null;
+  function walk(o) {
+    if (!o || typeof o !== "object") return;
+    if (o?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token) {
+      token = o.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
+      return;
+    }
+    if (o?.continuationCommand?.token) {
+      token = o.continuationCommand.token;
+      return;
+    }
+    for (const k in o) {
+      if (token) return;
+      walk(o[k]);
+    }
+  }
+  walk(obj);
+  return token;
+}
+
+// ===== Renderer extraction (supports videoRenderer and reel/shorts variants) =====
+function extractVideoFromRenderer(obj) {
+  // attempt videoRenderer first (regular uploads)
+  if (obj.videoRenderer && obj.videoRenderer.videoId) {
+    const vr = obj.videoRenderer;
+    const videoId = vr.videoId;
+    const title = vr.title?.runs?.map((r) => r.text).join("") || findFirst(vr, "title") || "";
+    let views = 0;
+    const txt = vr.viewCountText?.simpleText || vr.shortViewCountText?.simpleText || findFirst(vr, "viewCountText") || "";
+    if (txt) {
+      const mm = String(txt).match(/([\d,.KMkmb]+)\s*views?/i);
+      if (mm) views = parseHumanNumber(mm[1]);
+    }
+    const publishedAt = vr.publishedTimeText?.simpleText || findFirst(vr, "publishedTimeText") || null;
+    return { videoId, title, url: `https://www.youtube.com/watch?v=${videoId}`, views, publishedAt };
+  }
+
+  // attempt reelItemRenderer (Shorts)
+  if (obj.reelItemRenderer) {
+    const rr = obj.reelItemRenderer;
+    // videoId can be in several places
+    let videoId = rr.videoId || findFirst(rr, "videoId") || null;
+    if (!videoId) {
+      // try navigationEndpoint.watchEndpoint.videoId
+      videoId = findFirst(rr, "watchEndpoint")?.videoId || findFirst(rr, "navigationEndpoint")?.watchEndpoint?.videoId || null;
+    }
+    // title might be in 'headline' or 'title' or 'shortBylineText'
+    let title = "";
+    if (rr.headline?.runs) title = rr.headline.runs.map((r) => r.text).join("");
+    if (!title) title = rr.title?.runs?.map((r) => r.text).join("") || findFirst(rr, "title") || "";
+    // views: may be in 'viewCountText'
+    let views = 0;
+    const vtxt = rr.viewCountText?.simpleText || rr.shortViewCountText?.simpleText || findFirst(rr, "viewCountText") || "";
+    if (vtxt) {
+      const mm = String(vtxt).match(/([\d,.KMkmb]+)\s*views?/i);
+      if (mm) views = parseHumanNumber(mm[1]);
+    }
+    const publishedAt = rr.publishedTimeText?.simpleText || findFirst(rr, "publishedTimeText") || null;
+    if (videoId) {
+      return { videoId, title, url: `https://www.youtube.com/watch?v=${videoId}`, views, publishedAt };
+    }
+  }
+
+  // attempt some 'richItemRenderer' wrappers that may contain shorts or videoRenderer deeper
+  if (obj.richItemRenderer) {
+    // try to find videoRenderer inside
+    const found = findFirst(obj.richItemRenderer, "videoRenderer");
+    if (found && found.videoId) {
+      return extractVideoFromRenderer({ videoRenderer: found });
+    }
+    // try reelItemRenderer inside
+    const foundReel = findFirst(obj.richItemRenderer, "reelItemRenderer");
+    if (foundReel) {
+      return extractVideoFromRenderer({ reelItemRenderer: foundReel });
+    }
+  }
+
+  // as a last resort, try to find any videoId + title in nested structure
+  const anyId = findFirst(obj, "videoId");
+  if (anyId) {
+    const title = findFirst(obj, "title") || "";
+    const viewsRaw = findFirst(obj, "viewCountText") || findFirst(obj, "shortViewCountText") || "";
+    let views = 0;
+    if (viewsRaw) {
+      const mm = String(viewsRaw).match(/([\d,.KMkmb]+)\s*views?/i);
+      if (mm) views = parseHumanNumber(mm[1]);
+    }
+    const publishedAt = findFirst(obj, "publishedTimeText") || null;
+    return { videoId: String(anyId), title: typeof title === "string" ? title : (title.runs ? title.runs.map(r=>r.text).join("") : ""), url: `https://www.youtube.com/watch?v=${anyId}`, views, publishedAt };
+  }
+
+  return null;
+}
+
+// ===== Scrape (ytInitialData + follow continuations when available) =====
+async function scrapeSearchAll(keyword) {
+  console.log(`🔎 Scraping keyword: "${keyword}" (collecting regular + Shorts)`);
   const headers = { ...baseHeaders(), Cookie: pickCookie() };
   const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(keyword)}&sp=EgIQAQ%3D%3D`;
-  const resp = await axios.get(url, { headers, timeout: 20000 });
+  const resp = await axios.get(url, { headers, timeout: 30000 });
   const html = resp.data;
+
+  // try to extract ytcfg (for INNERTUBE_API_KEY/context)
+  const cfgMatch = html.match(/ytcfg\.set\((\{.+?\})\);/s);
+  let INNERTUBE_API_KEY = null;
+  let INNERTUBE_CONTEXT = null;
+  if (cfgMatch) {
+    try {
+      const cfg = JSON.parse(cfgMatch[1]);
+      INNERTUBE_API_KEY = cfg?.INNERTUBE_API_KEY || null;
+      INNERTUBE_CONTEXT = cfg?.INNERTUBE_CONTEXT || cfg?.INNERTUBE_CONTEXT_CLIENT_NAME ? cfg?.INNERTUBE_CONTEXT : null;
+    } catch (e) {
+      // ignore parse error
+    }
+  }
 
   const initMatch =
     html.match(/ytInitialData\s*=\s*(\{.+?\});<\/script>/s) ||
     html.match(/var ytInitialData = (\{.+?\});/s);
   if (!initMatch) {
-    console.warn("⚠️ ytInitialData not found. Skipping.");
-    return [];
+    console.warn("⚠️ ytInitialData not found. Skipping keyword.");
+    return { scrapedCount: 0, videos: [] };
   }
 
-  const initialData = JSON.parse(initMatch[1]);
-  let videos = [];
+  let initialData;
+  try {
+    initialData = JSON.parse(initMatch[1]);
+  } catch (e) {
+    console.warn("⚠️ Failed to parse ytInitialData JSON:", e.message);
+    return { scrapedCount: 0, videos: [] };
+  }
 
-  function collect(obj) {
+  const collected = [];
+  function walkAndCollect(obj) {
     if (!obj || typeof obj !== "object") return;
-    if (obj.videoRenderer && obj.videoRenderer.videoId) {
-      const vr = obj.videoRenderer;
-      const videoId = vr.videoId;
-      const title = vr.title?.runs?.map((r) => r.text).join("") || "";
-      let views = 0;
-      const txt = vr.viewCountText?.simpleText || vr.shortViewCountText?.simpleText || "";
-      if (txt) {
-        const mm = txt.match(/([\d,.KMkmb]+)\s*views?/i);
-        if (mm) views = parseHumanNumber(mm[1]);
-      }
-      const video = {
-        videoId,
-        title,
-        url: `https://www.youtube.com/watch?v=${videoId}`,
-        views,
-        publishedAt: vr.publishedTimeText?.simpleText || null,
-        keyword,
-      };
-      if (isViralCandidate(video)) videos.push(video);
+    // Attempt to extract from known renderer patterns
+    const extracted = extractVideoFromRenderer(obj);
+    if (extracted && extracted.videoId) {
+      collected.push(extracted);
     }
-    for (const k in obj) collect(obj[k]);
+    for (const k in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, k)) walkAndCollect(obj[k]);
+    }
+  }
+  walkAndCollect(initialData);
+
+  // find continuation token
+  let contToken = findContinuationToken(initialData);
+  let contPages = 0;
+
+  while (contToken && contPages < MAX_CONT_PAGES) {
+    contPages++;
+    try {
+      if (!INNERTUBE_API_KEY || !INNERTUBE_CONTEXT) {
+        console.warn("⚠️ INNERTUBE API key/context not found — cannot reliably follow more continuations. Breaking.");
+        break;
+      }
+      const apiUrl = `https://www.youtube.com/youtubei/v1/search?key=${INNERTUBE_API_KEY}`;
+      const body = { context: INNERTUBE_CONTEXT, continuation: contToken };
+      const r = await axios.post(apiUrl, body, { headers: { ...baseHeaders(), Cookie: pickCookie() }, timeout: 30000 });
+      const data = r.data;
+      // collect from continuation payload
+      walkAndCollect(data);
+      contToken = findContinuationToken(data);
+      // small polite wait
+      await wait(300 + Math.floor(Math.random() * 400));
+    } catch (e) {
+      console.warn("⚠️ Continuation fetch failed:", e.message);
+      break;
+    }
   }
 
-  collect(initialData);
-  console.log(`✅ Found ${videos.length} viral videos for "${keyword}"`);
-  return videos.slice(0, maxResults);
+  // dedupe
+  const deduped = dedupe(collected);
+  return { scrapedCount: deduped.length, videos: deduped };
 }
 
-// ===== Main =====
+// ===== MAIN =====
 (async () => {
-  console.log("--- Video monitor started ---");
+  console.log("--- Video monitor started (collect all, including Shorts) ---");
   const keywordsByLang = loadKeywords();
   const langs = Object.keys(keywordsByLang);
   if (!langs.length) {
-    console.error("❌ No keywords found.");
+    console.error("❌ No keywords found in data/keywords/");
     process.exit(1);
   }
 
   const trendingByLang = {};
-
   for (const [lang, kws] of Object.entries(keywordsByLang)) {
     console.log(`🌐 Processing language: ${lang} (${kws.length} keywords)`);
     for (const kw of kws) {
       try {
-        const vids = await scrapeSearch(kw, MAX_PER_KEYWORD);
+        const { scrapedCount, videos } = await scrapeSearchAll(kw);
+        console.log(`📝 Collected ${scrapedCount} videos (raw) for keyword "${kw}"`);
+        // apply strong filter to each video
+        const passed = [];
+        for (const v of videos) {
+          const vv = { ...v, keyword: kw, language: lang };
+          if (isViralCandidate(vv)) {
+            vv.views_per_day = Math.round(computeViewsPerDay(vv));
+            passed.push(vv);
+          }
+        }
         if (!trendingByLang[lang]) trendingByLang[lang] = [];
-        trendingByLang[lang].push(...vids.map((v) => ({ ...v, language: lang })));
-        console.log(`📝 Collected ${vids.length} viral candidates for keyword "${kw}"`);
-        await wait(500 + Math.floor(Math.random() * 500));
+        trendingByLang[lang].push(...passed);
+        // polite wait per keyword
+        await wait(400 + Math.floor(Math.random() * 600));
       } catch (e) {
-        console.warn("⚠️ Error scraping keyword", kw, e.message);
+        console.warn("⚠️ Error processing keyword", kw, e.message);
         await wait(1000);
       }
     }
   }
 
-  // Deduplicate & Sort by view rate
+  // Deduplicate & sort within language by views_per_day desc
   for (const lang of Object.keys(trendingByLang)) {
     trendingByLang[lang] = dedupe(trendingByLang[lang]);
-    trendingByLang[lang].sort((a, b) => computeViewRate(b) - computeViewRate(a));
+    trendingByLang[lang].sort((a, b) => (b.views_per_day || 0) - (a.views_per_day || 0));
   }
 
   // Save JSON
   fs.writeJsonSync(outCollected, trendingByLang, { spaces: 2 });
+  console.log(`💾 Saved JSON report to ${outCollected}`);
 
-  // Generate Markdown report
-  const md = ["# Trending Videos", `Generated: ${new Date().toISOString()}`];
+  // Generate Markdown
+  const md = ["# Trending Videos (Filtered)", `Generated: ${new Date().toISOString()}`, ""];
   for (const lang of Object.keys(trendingByLang)) {
     md.push(`## ${lang}`);
     for (const it of trendingByLang[lang]) {
-      md.push(
-        `- [${it.title}](${it.url}) — ${it.views.toLocaleString()} views — keyword: ${it.keyword}`
-      );
+      md.push(`- [${it.title}](${it.url}) — ${it.views.toLocaleString()} views — ${it.views_per_day.toLocaleString()} views/day — keyword: ${it.keyword}`);
     }
+    md.push("");
   }
   fs.writeFileSync(outMD, md.join("\n"));
+  console.log(`💾 Saved Markdown report to ${outMD}`);
 
-  // Final log: viral videos per language
-  console.log("🎯 Trending Videos by Language:");
+  // Final log: viral videos per language (clickable links)
+  console.log("\n🎯 Trending Videos by Language (strong filter results):\n");
   for (const lang of Object.keys(trendingByLang)) {
-    console.log(`\n## ${lang}`);
-    trendingByLang[lang].forEach((v) => {
-      console.log(`- [${v.title}](${v.url}) — ${v.views.toLocaleString()} views`);
-    });
+    console.log(`## ${lang}`);
+    if (!trendingByLang[lang].length) {
+      console.log("- (no viral candidates found)");
+      continue;
+    }
+    for (const v of trendingByLang[lang]) {
+      // Print title + stats, then full https url on next line so terminals make it clickable
+      console.log(`- ${v.title} — ${v.views.toLocaleString()} views — ${v.views_per_day.toLocaleString()} views/day`);
+      console.log(`  ${v.url}`);
+    }
+    console.log(""); // spacing between languages
   }
 
-  console.log("🏁 Done. JSON and Markdown reports saved.");
+  console.log("🏁 Done. JSON and Markdown reports saved, and final log printed above.");
 })();
