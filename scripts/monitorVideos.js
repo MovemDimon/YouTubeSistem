@@ -109,28 +109,32 @@ function normalizeText(s) {
 // you can extend these lists as needed
 const BUILT_IN_KEYWORDS = {
   en: [
-    "bitcoin","btc","ethereum","eth","altcoin","airdrops","airdrop","presale","presale","token","ico",
-    "defi","dex","staking","yield","rug pull","rugpull","scam","rug","memecoin","memes","shib","shiba",
-    "doge","dogecoin","solana","sol","bsc","binance","uniswap","pancake","trading","trade","exchange",
-    "halving","whale","whales","fomo","pump","dump","airdrops","Telegram","airdrop","nft","crypto","cryptocurrency"
+    "bitcoin","btc","ethereum","eth","altcoin","airdrop","presale","token","ico","defi","dex",
+    "staking","yield","rug","scam","memecoin","shib","doge","solana","sol","bsc","binance",
+    "uniswap","pancake","trading","trade","exchange","halving","whale","fomo","pump","dump",
+    "nft","crypto","cryptocurrency","money","income","business","finance","stock","investing",
+    "hustle","wealth","profit","cash","dollar","side"
   ],
   fa: [
-    "بیت‌کوین","بیت کوین","تلگرام","تلگرامی","بیتکوین","ارز دیجیتال","اتریوم","تتر","آلت‌کوین","آلت کوین","ایردراپ","ایردراپ",
-    "پرسِیل","پرسیل","پرسِیل","پری‌سیل","پریسل","پرسِی", "پرسل","توکن","نهنگ","نهنگ‌ها","پامپ","دامپ",
-    "ترید","تحلیل","صرافی","هاوینگ","میم‌کوین","میم کوین","شیبا","دوج","مجموعه","کیف پول","کیف‌پول"
+    "بیت‌کوین","بیت","اتریوم","تتر","آلتکوین","ایردراپ","پرسیل","توکن","نهنگ","پامپ","دامپ",
+    "ترید","تحلیل","صرافی","هاوینگ","میمکوین","شیبا","دوج","کیف","پول","تلگرام","ارز","دیجیتال",
+    "درآمد","سرمایه","بورس","بازار","سهام","کسب","کار","پول","سود","سرمایه‌گذاری","مالی"
   ],
   es: [
-    "bitcoin","btc","ethereum","eth","criptomoneda","criptomonedas","Telegram","airdrop","airdrops","token","intercambio",
-    "trade","trading","exchange","defi","dex","staking","halving","memecoin","shiba","doge","binance","bnb",
-    "solana","nft","cripto","criptos","moneda","presale","memes","pump","dump","whale","estafa","scam"
+    "bitcoin","btc","ethereum","eth","cripto","token","intercambio","trade","trading","exchange",
+    "defi","dex","staking","halving","memecoin","shiba","doge","binance","bnb","solana","nft",
+    "moneda","presale","pump","dump","whale","estafa","dinero","ingresos","negocio","finanzas",
+    "bolsa","invertir","ahorro","trabajo","ganar","emprender","cash"
   ],
   ru: [
-    "крипто","криптовалюта","биткоин","btc","эфириум","ethereum","Telegram","eth","айрдроп","airdop","трейд","трейдинг",
-    "альткоин","альт","монета","биржа","майнинг","мемкоин","шиба","доги","халвинг","памп","дамп","скам","ревю"
+    "крипто","биткоин","btc","эфириум","eth","токен","трейд","биржа","майнинг","мемкоин","шиба",
+    "доги","халвинг","памп","дамп","скам","монета","финансы","деньги","доход","бизнес","инвестиции",
+    "акции","рынок","прибыль","капитал","экономия","работа"
   ],
   hi: [
-    "क्रिप्टो","क्रिप्टोकरेंसी","बिटकॉइन","bitcoin","btc","एथेरियम","ethereum","Telegram","eth","airdrops","airdop",
-    "ट्रेड","ट्रेडिंग","वॉलेट","वॉलेट्स","प्रेसैल","presale","टोकन","निवेश","मेमकॉइन","शिबा","डोज"
+    "क्रिप्टो","बिटकॉइन","btc","एथेरियम","eth","ट्रेड","टोकन","प्रेसैल","मेमकॉइन","शिबा","डोज",
+    "वॉलेट","पैसा","आय","धन","काम","बिजनेस","फाइनेंस","निवेश","शेयर","मार्केट","लाभ","रोजगार",
+    "सेविंग","इनकम","ऑनलाइन"
   ]
 };
 
